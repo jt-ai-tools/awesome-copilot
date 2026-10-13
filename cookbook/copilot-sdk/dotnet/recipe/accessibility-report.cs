@@ -1,6 +1,7 @@
 #:package GitHub.Copilot.SDK@*
 
-using GitHub.Copilot.SDK;
+// The GitHub.Copilot.SDK package exposes the GitHub.Copilot namespace.
+using GitHub.Copilot;
 
 // Create and start client
 await using var client = new CopilotClient();
@@ -30,15 +31,14 @@ Console.WriteLine("Please wait...\n");
 // Create a session with Playwright MCP server
 await using var session = await client.CreateSessionAsync(new SessionConfig
 {
-  Model = "claude-opus-4.6",
+  Model = "auto",
   Streaming = true,
   OnPermissionRequest = PermissionHandler.ApproveAll,
-  McpServers = new Dictionary<string, object>()
+  McpServers = new Dictionary<string, McpServerConfig>()
   {
     ["playwright"] =
-        new McpLocalServerConfig
+        new McpStdioServerConfig
         {
-          Type = "local",
           Command = "npx",
           Args = ["@playwright/mcp@latest"],
           Tools = ["*"]
@@ -49,7 +49,7 @@ await using var session = await client.CreateSessionAsync(new SessionConfig
 // Wait for response using session.idle event
 var done = new TaskCompletionSource();
 
-session.On(evt =>
+session.On<SessionEvent>(evt =>
 {
   switch (evt)
   {

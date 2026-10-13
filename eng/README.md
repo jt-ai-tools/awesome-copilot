@@ -12,7 +12,7 @@ Automatically generates `.github/plugin/marketplace.json` from all plugin direct
 
 **How it works:**
 - Scans all directories in `plugins/`
-- Reads each plugin's `.github/plugin/plugin.json` for metadata
+- Reads each plugin's root `plugin.json` for metadata
 - Generates a consolidated `marketplace.json` with all available plugins
 - Runs automatically as part of `npm run build`
 
@@ -23,6 +23,22 @@ npm run plugin:generate-marketplace
 
 ### `generate-website-data.mjs`
 Generates JSON data files for the website from repository content.
+
+### `review-routing.mjs`
+Reviewer routing and review SLA escalation used by the Review Routing and Review Escalation workflows. Reviewer pools live in `.github/review-routing.yml`; see [docs/maintainers/review-routing.md](../docs/maintainers/review-routing.md).
+
+```bash
+node eng/review-routing.mjs validate      # validate .github/review-routing.yml
+node --test eng/review-routing.test.mjs   # unit tests
+```
+
+## Review automation
+
+See [docs/maintainers/canvas-evidence-and-metrics.md](../docs/maintainers/canvas-evidence-and-metrics.md) for details.
+
+- `canvas-smoke-test.mjs` — static checks, preview validation, materialization, and install smoke test for canvas extensions (`canvas-smoke-test` check).
+- `review-metrics.mjs` — computes weekly review operating metrics and publishes them to the tracking issue.
+- `lib/review-automation-github.mjs` — small GitHub API client used by `review-metrics.mjs` (uses `GITHUB_TOKEN`, or the `gh` CLI locally).
 
 ## Contributor Tools
 

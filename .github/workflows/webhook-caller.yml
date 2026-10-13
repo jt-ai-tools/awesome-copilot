@@ -20,6 +20,7 @@ permissions:
 
 jobs:
   call-webhooks:
+    if: ${{ github.repository == 'github/awesome-copilot' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check and call webhooks

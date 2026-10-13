@@ -15,7 +15,7 @@ You need to handle various error conditions like connection failures, timeouts, 
 ## Basic try-catch
 
 ```csharp
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 
 var client = new CopilotClient();
 
@@ -24,12 +24,12 @@ try
     await client.StartAsync();
     var session = await client.CreateSessionAsync(new SessionConfig
     {
-        Model = "gpt-5",
+        Model = "auto",
         OnPermissionRequest = PermissionHandler.ApproveAll
     });
 
     var done = new TaskCompletionSource<string>();
-    session.On(evt =>
+    session.On<SessionEvent>(evt =>
     {
         if (evt is AssistantMessageEvent msg)
         {
@@ -52,6 +52,13 @@ finally
     await client.StopAsync();
 }
 ```
+
+> `Session.On` is now generic: `On<T>(Action<T> handler) where T : SessionEvent`. The type
+> argument can no longer be inferred from a lambda that only pattern-matches inside the body, so
+> calls like `session.On(evt => { if (evt is AssistantMessageEvent msg) ... })` fail to compile
+> with `CS0411`. Either specify `On<SessionEvent>` and pattern-match inside (as above), or
+> subscribe directly to the concrete event type you care about, e.g.
+> `session.On<AssistantMessageEvent>(evt => Console.WriteLine(evt.Data?.Content))`.
 
 ## Handling specific error types
 
@@ -79,14 +86,14 @@ catch (Exception ex)
 ```csharp
 var session = await client.CreateSessionAsync(new SessionConfig
 {
-    Model = "gpt-5",
+    Model = "auto",
     OnPermissionRequest = PermissionHandler.ApproveAll
 });
 
 try
 {
     var done = new TaskCompletionSource<string>();
-    session.On(evt =>
+    session.On<SessionEvent>(evt =>
     {
         if (evt is AssistantMessageEvent msg)
         {
@@ -113,7 +120,7 @@ catch (OperationCanceledException)
 ```csharp
 var session = await client.CreateSessionAsync(new SessionConfig
 {
-    Model = "gpt-5",
+    Model = "auto",
     OnPermissionRequest = PermissionHandler.ApproveAll
 });
 
@@ -134,15 +141,22 @@ Console.CancelKeyPress += async (sender, e) =>
     e.Cancel = true;
     Console.WriteLine("Shutting down...");
 
-    var errors = await client.StopAsync();
-    if (errors.Count > 0)
+    try
     {
-        Console.WriteLine($"Cleanup errors: {string.Join(", ", errors)}");
+        await client.StopAsync();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Cleanup error: {ex.Message}");
     }
 
     Environment.Exit(0);
 };
 ```
+
+> In 1.0, `StopAsync()` throws if it encounters errors during cleanup rather than returning a
+> list of cleanup errors, so wrap it in a try/catch to log failures instead of letting them
+> crash shutdown. Use `ForceStopAsync()` if a graceful stop takes too long.
 
 ## Using await using for automatic disposal
 
@@ -152,7 +166,7 @@ await client.StartAsync();
 
 var session = await client.CreateSessionAsync(new SessionConfig
 {
-    Model = "gpt-5",
+    Model = "auto",
     OnPermissionRequest = PermissionHandler.ApproveAll
 });
 
@@ -161,9 +175,49 @@ var session = await client.CreateSessionAsync(new SessionConfig
 // client.StopAsync() is automatically called when exiting scope
 ```
 
+## Tagging message provenance
+
+Since v1.0.14, `MessageOptions` has a `Source` property so you can tag *why* a message was sent —
+useful when errors or unexpected turns show up in transcripts and you need to tell human input
+apart from messages an automated system (a webhook handler, a scheduled job, another agent) sent
+on the user's behalf.
+
+```csharp
+using GitHub.Copilot;
+
+// Ordinary human input (also the default when Source is omitted).
+await session.SendAsync(new MessageOptions
+{
+    Prompt = "What changed in the last release?",
+    Source = MessageSource.User
+});
+
+// A message injected by your own system rather than typed by a person,
+// e.g. a scheduled health check or automated retry.
+await session.SendAsync(new MessageOptions
+{
+    Prompt = "Re-run the failed step and report the result.",
+    Source = MessageSource.System
+});
+
+// A message sent by another agent or automation acting on the user's behalf,
+// tagged with a caller-supplied identifier.
+await session.SendAsync(new MessageOptions
+{
+    Prompt = "Summarize the open incidents.",
+    Source = MessageSource.Agent("incident-bot")
+});
+```
+
+`MessageSource` is a closed record with `User`, `System`, and a `MessageSource.Agent(string id)`
+factory (serialized as `"agent-<id>"`). Tagging a source only records provenance on the message —
+it does not change how the message is delivered, replace the session's system prompt, or grant
+extra permissions. When `Source` is omitted, the field is left unset and the runtime treats the
+message as ordinary user input.
+
 ## Best practices
 
-Starting with Copilot SDK v0.1.28, permission handling is opt-in. If a session may need tool, file, or system access, set `OnPermissionRequest` explicitly when creating it.
+Permission handling is opt-in. If a session may need tool, file, or system access, set `OnPermissionRequest` explicitly when creating it.
 
 1. **Always clean up**: Use try-finally or `await using` to ensure `StopAsync()` is called
 2. **Handle connection errors**: The CLI might not be installed or running

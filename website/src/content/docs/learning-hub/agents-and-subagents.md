@@ -3,7 +3,7 @@ title: 'Agents and Subagents'
 description: 'Learn how delegated subagents differ from primary agents, when to use them, and how to launch them in VS Code and Copilot CLI.'
 authors:
   - GitHub Copilot Learning Hub Team
-lastUpdated: 2026-04-02
+lastUpdated: 2026-09-12
 estimatedReadingTime: '9 minutes'
 tags:
   - agents
@@ -18,7 +18,7 @@ prerequisites:
   - Basic understanding of GitHub Copilot agents
 ---
 
-We're [familiar with agents](./what-are-agents-skills-instructions.md), but there is another aspect to agentic workflows that we need to consider, and that is the role of subagents. An **agent** is the primary assistant you choose for a session or workflow while a **subagent** is a temporary worker that the main agent launches for a narrower task, usually to keep context clean, parallelize work, or apply a more specialized set of instructions.
+We're [familiar with agents](../what-are-agents-skills-instructions/), but there is another aspect to agentic workflows that we need to consider, and that is the role of subagents. An **agent** is the primary assistant you choose for a session or workflow while a **subagent** is a temporary worker that the main agent launches for a narrower task, usually to keep context clean, parallelize work, or apply a more specialized set of instructions.
 
 This distinction matters more as you move from simple chat prompts to orchestrated agentic workflows.
 
@@ -123,6 +123,8 @@ For non-interactive execution:
 copilot -p "/fleet Update the auth docs, refactor the auth service, and add related tests." --no-ask-user
 ```
 
+> **Prompt mode and repo hooks (v1.0.40+)**: When using `copilot -p "..."` (prompt mode), repository hooks are disabled by default for security. If your `/fleet` workflow relies on hooks (e.g., auto-formatting or lint checks after edits), opt in by setting `GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS=true` before running. See [Automating with Hooks](../automating-with-hooks/) for details.
+
 The important behavior is different from a single chat turn:
 
 - the orchestrator plans work items first
@@ -131,6 +133,29 @@ The important behavior is different from a single chat turn:
 - subagents share the same filesystem, so overlapping writes should be avoided
 
 That makes `/fleet` a practical way to launch subagents even if you are not authoring custom agent files yourself.
+
+### Rubber-duck agent
+
+Available in `/experimental` (v1.0.42+), the **rubber-duck agent** applies a novel multi-model pattern: when you're working in a GPT-powered session, the rubber-duck agent internally routes certain requests through Claude to provide a second perspective. The idea is similar to rubber-duck debugging — talking through a problem with a different "listener" often surfaces assumptions or blind spots you didn't notice.
+
+In v1.0.64+, you can configure the rubber-duck agent (including its complementary model strategy) directly from `/subagents`:
+
+```
+/subagents          # open the subagents configuration panel
+```
+
+Or you can still enable experimental features and select it from the agent picker:
+
+```
+/experimental           # toggle experimental features
+/agent                  # open the agent picker and select rubber-duck
+```
+
+The **complementary model strategy** lets you specify that the rubber-duck agent should automatically pick a model from a different family than your primary model (e.g., if you're on Claude, it selects a GPT model, and vice versa). This maximises the diversity of perspectives.
+
+Because it runs as a sub-agent layer rather than replacing your primary model, you keep your current session model and context while the rubber-duck analysis runs in the background.
+
+> **Note**: This is an experimental feature and may change. Provide feedback via `/feedback` if you find it useful.
 
 ## Orchestration patterns that work well
 
@@ -145,6 +170,8 @@ Run parallel subagents for different lenses - correctness, security, code qualit
 ### Research, then act
 
 Use one subagent to gather facts and another to implement with those facts. This pattern is especially helpful when you want the main thread to stay free of exploratory noise.
+
+The built-in **`/research`** command uses this orchestrator/subagent model automatically (v1.0.40+): it spawns an orchestrator that breaks the topic into research threads, runs them in parallel as subagents, and synthesizes the findings into a structured report. This means you get deeper and more reliable results than a single-turn query provides — without having to set up the multi-agent pattern yourself.
 
 ## Repository examples you can inspect
 
@@ -167,6 +194,14 @@ That means you should think about delegation features in product-specific terms:
 
 If you share agent files across surfaces, document those differences so users know which behaviors are portable and which are editor-specific.
 
+## Tracking delegated work in VS Code (v1.136+)
+
+When an agent delegates work to multiple chats, VS Code's **Agents window** now shows those chats as children of their parent session in the sessions list, so you can see which chats belong together instead of managing a flat list of unrelated sessions. Each chat row shows its own title, status, and pending approvals. A delegated request also includes a source link (for example **Sent by another session**) so you can jump straight back to whichever session or chat initiated it.
+
+This pairs with **improved workspace resolution**: agents can resolve a workspace by project name (for example, "run this in the vscode workspace") in addition to absolute paths, which simplifies prompts that hand off work across multiple repositories.
+
+**Shareable session links** *(VS Code 1.138+)*: Agent Host sessions and chats now provide browser-addressable links, so you can reopen or share a specific Agents window session directly from another app, a GitHub issue, or terminal output — useful when handing off a delegated subagent's work to a teammate for review. You can also start a new session beside the current one in one step, keeping the current work visible while a second session starts.
+
 ## Common questions
 
 **Do users always invoke subagents directly?**
@@ -180,6 +215,10 @@ Yes, when the delegated worker is a custom agent with its own frontmatter.
 **Are subagents always parallel?**
 
 No. They can run sequentially when one step depends on another, or in parallel when work items are independent.
+
+**Can I control how many subagents run simultaneously?**
+
+Yes. In v1.0.66+, usage-based billing users can configure **subagent concurrency and depth limits** directly from `/settings`. The concurrency limit controls how many subagents run in parallel; the depth limit controls how many levels deep delegation can chain (preventing runaway recursive subagent trees). These settings give you predictable control over resource consumption during complex orchestrated tasks.
 
 ## Next steps
 

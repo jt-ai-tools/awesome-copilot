@@ -4,108 +4,31 @@ import fs from "fs";
 import path, { dirname } from "path";
 import { fileURLToPath } from "url";
 import {
-    AGENTS_DIR,
-    AKA_INSTALL_URLS,
-    DOCS_DIR,
-    HOOKS_DIR,
-    INSTRUCTIONS_DIR,
-    PLUGINS_DIR,
-    repoBaseUrl,
-    ROOT_FOLDER,
-    SKILLS_DIR,
-    TEMPLATES,
-    vscodeInsidersInstallImage,
-    vscodeInstallImage,
-    WORKFLOWS_DIR,
+  AGENTS_DIR,
+  AKA_INSTALL_URLS,
+  DOCS_DIR,
+  HOOKS_DIR,
+  INSTRUCTIONS_DIR,
+  PLUGINS_DIR,
+  publishedArtifactBaseUrl,
+  ROOT_FOLDER,
+  SKILLS_DIR,
+  sourceContentBaseUrl,
+  TEMPLATES,
+  vscodeInsidersInstallImage,
+  vscodeInstallImage,
+  WORKFLOWS_DIR,
 } from "./constants.mjs";
 import {
-    extractMcpServerConfigs,
-    parseFrontmatter,
-    parseSkillMetadata,
-    parseHookMetadata,
-    parseWorkflowMetadata,
+  parseFrontmatter,
+  parseHookMetadata,
+  parseSkillMetadata,
+  parseWorkflowMetadata,
 } from "./yaml-parser.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-
-// Cache of MCP registry server names (lower-cased) fetched from the API
-let MCP_REGISTRY_SET = null;
-/**
- * Loads and caches the set of MCP registry server names from the GitHub MCP registry API.
- *
- * Behavior:
- * - If a cached set already exists (MCP_REGISTRY_SET), it is returned immediately.
- * - Fetches all pages from https://api.mcp.github.com/v0.1/servers/ using cursor-based pagination
- * - Safely handles network errors or malformed JSON by returning an empty array.
- * - Extracts server names from: data[].server.name
- * - Normalizes names to lowercase for case-insensitive matching
- * - Only hits the API once per README build run (cached for subsequent calls)
- *
- * Side Effects:
- * - Mutates the module-scoped variable MCP_REGISTRY_SET.
- * - Logs a warning to console if fetching or parsing the registry fails.
- *
- * @returns {Promise<{ name: string, displayName: string }[]>} Array of server entries with name and lowercase displayName. May be empty if
- *          the API is unreachable or returns malformed data.
- *
- * @throws {none} All errors are caught internally; failures result in an empty array.
- */
-async function loadMcpRegistryNames() {
-  if (MCP_REGISTRY_SET) return MCP_REGISTRY_SET;
-
-  try {
-    console.log("Fetching MCP registry from API...");
-    const allServers = [];
-    let cursor = null;
-    const apiUrl = "https://api.mcp.github.com/v0.1/servers/";
-
-    // Fetch all pages using cursor-based pagination
-    do {
-      const url = cursor
-        ? `${apiUrl}?cursor=${encodeURIComponent(cursor)}`
-        : apiUrl;
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error(`API returned status ${response.status}`);
-      }
-
-      const json = await response.json();
-      const servers = json?.servers || [];
-
-      // Extract server names and displayNames from the response
-      for (const entry of servers) {
-        const serverName = entry?.server?.name;
-        if (serverName) {
-          // Try to get displayName from GitHub metadata, fall back to server name
-          const displayName =
-            entry?.server?._meta?.[
-              "io.modelcontextprotocol.registry/publisher-provided"
-            ]?.github?.displayName || serverName;
-
-          allServers.push({
-            name: serverName,
-            displayName: displayName.toLowerCase(),
-            // Also store the original full name for matching
-            fullName: serverName.toLowerCase(),
-          });
-        }
-      }
-
-      // Get next cursor for pagination
-      cursor = json?.metadata?.nextCursor || null;
-    } while (cursor);
-
-    console.log(`Loaded ${allServers.length} servers from MCP registry`);
-    MCP_REGISTRY_SET = allServers;
-  } catch (e) {
-    console.warn(`Failed to load MCP registry from API: ${e.message}`);
-    MCP_REGISTRY_SET = [];
-  }
-
-  return MCP_REGISTRY_SET;
-}
+const EXTENSIONS_DIR = path.join(ROOT_FOLDER, "extensions");
 
 // Add error handling utility
 /**
@@ -268,14 +191,16 @@ function formatTableCell(text) {
   return s.trim();
 }
 
-function makeBadges(link, type) {
+function makeBadges(link, type, linkIntent = "source") {
   const aka = AKA_INSTALL_URLS[type] || AKA_INSTALL_URLS.instructions;
+  const rawBaseUrl =
+    linkIntent === "published" ? publishedArtifactBaseUrl : sourceContentBaseUrl;
 
   const vscodeUrl = `${aka}?url=${encodeURIComponent(
-    `vscode:chat-${type}/install?url=${repoBaseUrl}/${link}`
+    `vscode:chat-${type}/install?url=${rawBaseUrl}/${link}`
   )}`;
   const insidersUrl = `${aka}?url=${encodeURIComponent(
-    `vscode-insiders:chat-${type}/install?url=${repoBaseUrl}/${link}`
+    `vscode-insiders:chat-${type}/install?url=${rawBaseUrl}/${link}`
   )}`;
 
   return `[![Install in VS Code](${vscodeInstallImage})](${vscodeUrl})<br />[![Install in VS Code Insiders](${vscodeInsidersInstallImage})](${insidersUrl})`;
@@ -303,7 +228,7 @@ function generateInstructionsSection(instructionsDir) {
   });
 
   // Sort by title alphabetically
-  instructionEntries.sort((a, b) => a.title.localeCompare(b.title));
+  instructionEntries.sort((a, b) => a.title.localeCompare(b.title, "en"));
 
   console.log(`Found ${instructionEntries.length} instruction files`);
 
@@ -325,7 +250,7 @@ function generateInstructionsSection(instructionsDir) {
     const customDescription = extractDescription(filePath);
 
     // Create badges for installation links
-    const badges = makeBadges(link, "instructions");
+    const badges = makeBadges(link, "instructions", "source");
 
     if (customDescription && customDescription !== "null") {
       // Use the description from frontmatter, table-safe
@@ -343,120 +268,17 @@ function generateInstructionsSection(instructionsDir) {
 }
 
 /**
- * Generate MCP server links for an agent
- * @param {string[]} servers - Array of MCP server names
- * @param {{ name: string, displayName: string }[]} registryNames - Pre-loaded registry names to avoid async calls
- * @returns {string} - Formatted MCP server links with badges
- */
-function generateMcpServerLinks(servers, registryNames) {
-  if (!servers || servers.length === 0) {
-    return "";
-  }
-
-  const badges = [
-    {
-      type: "vscode",
-      url: "https://img.shields.io/badge/Install-VS_Code-0098FF?style=flat-square",
-      badgeUrl: (serverName) =>
-        `https://aka.ms/awesome-copilot/install/mcp-vscode?vscode:mcp/by-name/${serverName}/mcp-server`,
-    },
-    {
-      type: "insiders",
-      url: "https://img.shields.io/badge/Install-VS_Code_Insiders-24bfa5?style=flat-square",
-      badgeUrl: (serverName) =>
-        `https://aka.ms/awesome-copilot/install/mcp-vscode?vscode-insiders:mcp/by-name/${serverName}/mcp-server`,
-    },
-    {
-      type: "visualstudio",
-      url: "https://img.shields.io/badge/Install-Visual_Studio-C16FDE?style=flat-square",
-      badgeUrl: (serverName) =>
-        `https://aka.ms/awesome-copilot/install/mcp-visualstudio?vscode:mcp/by-name/${serverName}/mcp-server`,
-    },
-  ];
-
-  return servers
-    .map((entry) => {
-      // Support either a string name or an object with config
-      const serverObj = typeof entry === "string" ? { name: entry } : entry;
-      const serverName = String(serverObj.name).trim();
-
-      // Build config-only JSON (no name/type for stdio; just command+args+env)
-      let configPayload = {};
-      if (serverObj.type && serverObj.type.toLowerCase() === "http") {
-        // HTTP: url + headers
-        configPayload = {
-          url: serverObj.url || "",
-          headers: serverObj.headers || {},
-        };
-      } else {
-        // Local/stdio: command + args + env
-        configPayload = {
-          command: serverObj.command || "",
-          args: Array.isArray(serverObj.args)
-            ? serverObj.args.map(encodeURIComponent)
-            : [],
-          env: serverObj.env || {},
-        };
-      }
-
-      const encodedConfig = encodeURIComponent(JSON.stringify(configPayload));
-
-      const installBadgeUrls = [
-        `[![Install MCP](${badges[0].url})](https://aka.ms/awesome-copilot/install/mcp-vscode?name=${serverName}&config=${encodedConfig})`,
-        `[![Install MCP](${badges[1].url})](https://aka.ms/awesome-copilot/install/mcp-vscodeinsiders?name=${serverName}&config=${encodedConfig})`,
-        `[![Install MCP](${badges[2].url})](https://aka.ms/awesome-copilot/install/mcp-visualstudio/mcp-install?${encodedConfig})`,
-      ].join("<br />");
-
-      // Match against both displayName and full name (case-insensitive)
-      const serverNameLower = serverName.toLowerCase();
-      const registryEntry = registryNames.find((entry) => {
-        // Exact match on displayName or fullName
-        if (
-          entry.displayName === serverNameLower ||
-          entry.fullName === serverNameLower
-        ) {
-          return true;
-        }
-
-        // Check if the serverName matches a part of the full name after a slash
-        // e.g., "apify" matches "com.apify/apify-mcp-server"
-        const nameParts = entry.fullName.split("/");
-        if (nameParts.length > 1 && nameParts[1]) {
-          // Check if it matches the second part (after the slash)
-          const secondPart = nameParts[1]
-            .replace("-mcp-server", "")
-            .replace("-mcp", "");
-          if (secondPart === serverNameLower) {
-            return true;
-          }
-        }
-
-        // Check if serverName matches the displayName ignoring case
-        return entry.displayName === serverNameLower;
-      });
-      const serverLabel = registryEntry
-        ? `[${serverName}](${`https://github.com/mcp/${registryEntry.name}`})`
-        : serverName;
-      return `${serverLabel}<br />${installBadgeUrls}`;
-    })
-    .join("<br />");
-}
-
-/**
  * Generate the agents section with a table of all agents
  * @param {string} agentsDir - Directory path
- * @param {{ name: string, displayName: string }[]} registryNames - Pre-loaded MCP registry names
  */
-function generateAgentsSection(agentsDir, registryNames = []) {
+function generateAgentsSection(agentsDir) {
   return generateUnifiedModeSection({
     dir: agentsDir,
     extension: ".agent.md",
     linkPrefix: "agents",
     badgeType: "agent",
-    includeMcpServers: true,
     sectionTemplate: TEMPLATES.agentsSection,
     usageTemplate: TEMPLATES.agentsUsage,
-    registryNames,
   });
 }
 
@@ -566,7 +388,8 @@ function generateWorkflowsSection(workflowsDir) {
   // Generate table rows for each workflow
   for (const workflow of workflowEntries) {
     const link = `../workflows/${workflow.file}`;
-    const triggers = workflow.triggers.length > 0 ? workflow.triggers.join(", ") : "N/A";
+    const triggers =
+      workflow.triggers.length > 0 ? workflow.triggers.join(", ") : "N/A";
 
     content += `| [${workflow.name}](${link}) | ${formatTableCell(
       workflow.description
@@ -626,9 +449,11 @@ function generateSkillsSection(skillsDir) {
         ? skill.assets.map((a) => `\`${a}\``).join("<br />")
         : "None";
 
-    content += `| [${skill.name}](${link}) | ${formatTableCell(
-      skill.description
-    )} | ${assetsList} |\n`;
+    content += `| [${
+      skill.name
+    }](${link})<br />\`gh skills install github/awesome-copilot ${
+      skill.folder
+    }\` | ${formatTableCell(skill.description)} | ${assetsList} |\n`;
   }
 
   return `${TEMPLATES.skillsSection}\n${TEMPLATES.skillsUsage}\n\n${content}`;
@@ -641,10 +466,8 @@ function generateSkillsSection(skillsDir) {
  * @param {string} cfg.extension - File extension to match (e.g. .agent.md, .agent.md)
  * @param {string} cfg.linkPrefix - Link prefix folder name
  * @param {string} cfg.badgeType - Badge key (mode, agent)
- * @param {boolean} cfg.includeMcpServers - Whether to include MCP server column
  * @param {string} cfg.sectionTemplate - Section heading template
  * @param {string} cfg.usageTemplate - Usage subheading template
- * @param {{ name: string, displayName: string }[]} cfg.registryNames - Pre-loaded MCP registry names
  */
 function generateUnifiedModeSection(cfg) {
   const {
@@ -652,10 +475,8 @@ function generateUnifiedModeSection(cfg) {
     extension,
     linkPrefix,
     badgeType,
-    includeMcpServers,
     sectionTemplate,
     usageTemplate,
-    registryNames = [],
   } = cfg;
 
   if (!fs.existsSync(dir)) {
@@ -670,36 +491,22 @@ function generateUnifiedModeSection(cfg) {
     return { file, filePath, title: extractTitle(filePath) };
   });
 
-  entries.sort((a, b) => a.title.localeCompare(b.title));
+  entries.sort((a, b) => a.title.localeCompare(b.title, "en"));
   console.log(
     `Unified mode generator: ${entries.length} files for extension ${extension}`
   );
   if (entries.length === 0) return "";
 
-  let header = "| Title | Description |";
-  if (includeMcpServers) header += " MCP Servers |";
-  let separator = "| ----- | ----------- |";
-  if (includeMcpServers) separator += " ----------- |";
-
-  let content = `${header}\n${separator}\n`;
+  let content = "| Title | Description |\n| ----- | ----------- |\n";
 
   for (const { file, filePath, title } of entries) {
     const link = encodeURI(`${linkPrefix}/${file}`);
     const description = extractDescription(filePath);
-    const badges = makeBadges(link, badgeType);
-    let mcpServerCell = "";
-    if (includeMcpServers) {
-      const servers = extractMcpServerConfigs(filePath);
-      mcpServerCell = generateMcpServerLinks(servers, registryNames);
-    }
+    const badges = makeBadges(link, badgeType, "source");
 
     const descCell =
       description && description !== "null" ? formatTableCell(description) : "";
-    if (includeMcpServers) {
-      content += `| [${title}](../${link})<br />${badges} | ${descCell} | ${mcpServerCell} |\n`;
-    } else {
-      content += `| [${title}](../${link})<br />${badges} | ${descCell} |\n`;
-    }
+    content += `| [${title}](../${link})<br />${badges} | ${descCell} |\n`;
   }
 
   return `${sectionTemplate}\n${usageTemplate}\n\n${content}`;
@@ -709,7 +516,7 @@ function generateUnifiedModeSection(cfg) {
  * Read and parse a plugin.json file from a plugin directory.
  */
 function readPluginJson(pluginDir) {
-  const jsonPath = path.join(pluginDir, ".github/plugin", "plugin.json");
+  const jsonPath = path.join(pluginDir, "plugin.json");
   if (!fs.existsSync(jsonPath)) return null;
   try {
     return JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
@@ -779,10 +586,23 @@ function generatePluginsSection(pluginsDir) {
   // Generate table rows for each plugin
   for (const entry of sortedEntries) {
     const { plugin, dir, name, isFeatured } = entry;
-    const description = formatTableCell(
-      plugin.description || "No description"
-    );
-    const itemCount = (plugin.agents || []).length + (plugin.commands || []).length + (plugin.skills || []).length;
+    const description = formatTableCell(plugin.description || "No description");
+    const composition = plugin.extensions?.["com.github.awesome-copilot"] || {};
+    const extensionReferences = Array.isArray(composition.extensions)
+      ? composition.extensions.length
+      : 0;
+    const implicitExtension =
+      fs.existsSync(path.join(EXTENSIONS_DIR, entry.pluginId, "extension.mjs")) &&
+      !(Array.isArray(composition.extensions) && composition.extensions.some(
+        (reference) => reference === `./extensions/${entry.pluginId}`
+      ))
+      ? 1
+      : 0;
+    const itemCount =
+      (composition.agents || []).length +
+      (composition.skills || []).length +
+      extensionReferences +
+      implicitExtension;
     const keywords = plugin.keywords ? plugin.keywords.join(", ") : "";
 
     const link = `../plugins/${dir}/README.md`;
@@ -791,7 +611,16 @@ function generatePluginsSection(pluginsDir) {
     pluginsContent += `| [${displayName}](${link}) | ${description} | ${itemCount} items | ${keywords} |\n`;
   }
 
-  return `${TEMPLATES.pluginsSection}\n${TEMPLATES.pluginsUsage}\n\n${pluginsContent}`;
+  const publishedManifestUrl = `${publishedArtifactBaseUrl}/.github/plugin/marketplace.json`;
+  const sourceTreeUrl =
+    "https://github.com/github/awesome-copilot/tree/main/plugins";
+  const pluginLinkGuidance = [
+    "",
+    `- Published marketplace manifest (tool-facing): \`${publishedManifestUrl}\``,
+    `- Source plugin content (human-authored): \`${sourceTreeUrl}\``,
+  ].join("\n");
+
+  return `${TEMPLATES.pluginsSection}\n${TEMPLATES.pluginsUsage}${pluginLinkGuidance}\n\n${pluginsContent}`;
 }
 
 /**
@@ -826,7 +655,22 @@ function generateFeaturedPluginsSection(pluginsDir) {
             plugin.description || "No description"
           );
           const keywords = plugin.keywords ? plugin.keywords.join(", ") : "";
-          const itemCount = (plugin.agents || []).length + (plugin.commands || []).length + (plugin.skills || []).length;
+          const composition = plugin.extensions?.["com.github.awesome-copilot"] || {};
+          const extensionReferences = Array.isArray(composition.extensions)
+            ? composition.extensions.length
+            : 0;
+          const implicitExtension =
+            fs.existsSync(path.join(EXTENSIONS_DIR, name, "extension.mjs")) &&
+            !(Array.isArray(composition.extensions) && composition.extensions.some(
+              (reference) => reference === `./extensions/${name}`
+            ))
+            ? 1
+            : 0;
+          const itemCount =
+            (composition.agents || []).length +
+            (composition.skills || []).length +
+            extensionReferences +
+            implicitExtension;
 
           return {
             dir,
@@ -892,10 +736,9 @@ function buildCategoryReadme(
   sectionBuilder,
   dirPath,
   headerLine,
-  usageLine,
-  registryNames = []
+  usageLine
 ) {
-  const section = sectionBuilder(dirPath, registryNames);
+  const section = sectionBuilder(dirPath);
   if (section && section.trim()) {
     // Upgrade the first markdown heading level from ## to # for standalone README files
     return section.replace(/^##\s/m, "# ");
@@ -909,9 +752,6 @@ async function main() {
   try {
     console.log("Generating category README files...");
 
-    // Load MCP registry names once at the beginning
-    const registryNames = await loadMcpRegistryNames();
-
     // Compose headers for standalone files by converting section headers to H1
     const instructionsHeader = TEMPLATES.instructionsSection.replace(
       /^##\s/m,
@@ -921,25 +761,20 @@ async function main() {
     const hooksHeader = TEMPLATES.hooksSection.replace(/^##\s/m, "# ");
     const workflowsHeader = TEMPLATES.workflowsSection.replace(/^##\s/m, "# ");
     const skillsHeader = TEMPLATES.skillsSection.replace(/^##\s/m, "# ");
-    const pluginsHeader = TEMPLATES.pluginsSection.replace(
-      /^##\s/m,
-      "# "
-    );
+    const pluginsHeader = TEMPLATES.pluginsSection.replace(/^##\s/m, "# ");
 
     const instructionsReadme = buildCategoryReadme(
       generateInstructionsSection,
       INSTRUCTIONS_DIR,
       instructionsHeader,
-      TEMPLATES.instructionsUsage,
-      registryNames
+      TEMPLATES.instructionsUsage
     );
     // Generate agents README
     const agentsReadme = buildCategoryReadme(
       generateAgentsSection,
       AGENTS_DIR,
       agentsHeader,
-      TEMPLATES.agentsUsage,
-      registryNames
+      TEMPLATES.agentsUsage
     );
 
     // Generate hooks README
@@ -947,8 +782,7 @@ async function main() {
       generateHooksSection,
       HOOKS_DIR,
       hooksHeader,
-      TEMPLATES.hooksUsage,
-      registryNames
+      TEMPLATES.hooksUsage
     );
 
     // Generate workflows README
@@ -956,8 +790,7 @@ async function main() {
       generateWorkflowsSection,
       WORKFLOWS_DIR,
       workflowsHeader,
-      TEMPLATES.workflowsUsage,
-      registryNames
+      TEMPLATES.workflowsUsage
     );
 
     // Generate skills README
@@ -965,8 +798,7 @@ async function main() {
       generateSkillsSection,
       SKILLS_DIR,
       skillsHeader,
-      TEMPLATES.skillsUsage,
-      registryNames
+      TEMPLATES.skillsUsage
     );
 
     // Generate plugins README
@@ -974,8 +806,7 @@ async function main() {
       generatePluginsSection,
       PLUGINS_DIR,
       pluginsHeader,
-      TEMPLATES.pluginsUsage,
-      registryNames
+      TEMPLATES.pluginsUsage
     );
 
     // Ensure docs directory exists for category outputs
@@ -990,12 +821,12 @@ async function main() {
     );
     writeFileIfChanged(path.join(DOCS_DIR, "README.agents.md"), agentsReadme);
     writeFileIfChanged(path.join(DOCS_DIR, "README.hooks.md"), hooksReadme);
-    writeFileIfChanged(path.join(DOCS_DIR, "README.workflows.md"), workflowsReadme);
-    writeFileIfChanged(path.join(DOCS_DIR, "README.skills.md"), skillsReadme);
     writeFileIfChanged(
-      path.join(DOCS_DIR, "README.plugins.md"),
-      pluginsReadme
+      path.join(DOCS_DIR, "README.workflows.md"),
+      workflowsReadme
     );
+    writeFileIfChanged(path.join(DOCS_DIR, "README.skills.md"), skillsReadme);
+    writeFileIfChanged(path.join(DOCS_DIR, "README.plugins.md"), pluginsReadme);
 
     // Plugin READMEs are authoritative (already exist in each plugin folder)
 
@@ -1039,9 +870,7 @@ async function main() {
         writeFileIfChanged(mainReadmePath, readmeContent);
         console.log("Main README.md updated with featured plugins");
       } else {
-        console.warn(
-          "README.md not found, skipping featured plugins update"
-        );
+        console.warn("README.md not found, skipping featured plugins update");
       }
     } else {
       console.log("No featured plugins found to add to README.md");

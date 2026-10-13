@@ -3,7 +3,7 @@ title: 'Understanding MCP Servers'
 description: 'Learn how Model Context Protocol servers extend GitHub Copilot with access to external tools, databases, and APIs.'
 authors:
   - GitHub Copilot Learning Hub Team
-lastUpdated: 2026-04-16
+lastUpdated: 2026-09-22
 estimatedReadingTime: '8 minutes'
 tags:
   - mcp
@@ -66,6 +66,7 @@ MCP servers are configured per-workspace. GitHub Copilot CLI discovers server de
 | File | Scope | Notes |
 |------|-------|-------|
 | `.mcp.json` | Repository root | Preferred for repo-shared configuration |
+| `.github/mcp.json` | Repository `.github/` folder | Auto-loaded workspace config |
 | `.vscode/mcp.json` | VS Code workspace | VS Code–compatible workspace config |
 | `devcontainer.json` | Dev container | Available when running inside a container |
 
@@ -91,17 +92,19 @@ Example `.mcp.json` or `.vscode/mcp.json`:
 }
 ```
 
+GitHub Copilot CLI, the SDK, IDE integrations, and in-memory clients support the **MCP 2026-07-28 specification**, keeping compatibility current with the latest Model Context Protocol servers as they adopt the new spec revision.
+
 ### Installing MCP Servers from the Registry
 
-GitHub Copilot CLI can install MCP servers directly from the official registry with guided configuration — no manual JSON editing required. During an interactive session, run:
+GitHub Copilot CLI provides a registry-based install flow that lets you browse and install MCP servers with guided configuration — no manual JSON editing required. Use the `/mcp registry` sub-command to browse available servers:
 
 ```
-/mcp install
+/mcp registry
 ```
 
 A picker will list available servers from the registry. After selecting one, the CLI prompts for any required configuration values (connection strings, API keys, etc.) and writes the completed entry to your persistent MCP config automatically.
 
-You can also install a specific server by name without the picker:
+You can also install a specific server by name directly:
 
 ```
 /mcp install @modelcontextprotocol/server-postgres
@@ -119,6 +122,18 @@ This guided flow is the recommended way to add new MCP servers, especially for s
 
 **type** (remote servers): The transport type for remote MCP servers (`http` or `sse`). This field can now be omitted — the CLI defaults to `http` when no type is specified, simplifying remote server configuration.
 
+**deferTools** *(optional)*: When set to `false`, the server's tools are always available even when tool search is enabled. By default, tool search can hide rarely-used MCP tools to reduce context noise; setting `deferTools: false` on a server prevents its tools from being deferred, keeping them permanently in the tool list.
+
+### Allowing MCP Server Instructions
+
+By default, Copilot CLI limits which MCP server instructions are injected into the system prompt, to avoid noisy or unexpected instructions from servers you may not have fully reviewed. You can opt in to include instructions from **all** connected MCP servers with the `--allow-all-mcp-server-instructions` flag:
+
+```bash
+copilot --allow-all-mcp-server-instructions
+```
+
+Use this only with servers you fully trust, since their instructions can influence how Copilot responds throughout the entire session. For most projects, the default behavior is sufficient — only enable this if a specific server requires it (for example, an internal tool whose instructions you control).
+
 ### Managing Persistent MCP Configuration via Server RPCs
 
 In addition to file-based configuration, GitHub Copilot CLI exposes **server RPCs** that let MCP servers and tooling scripts manage the persistent MCP server registry at runtime. This enables programmatic setup — for example, an installer script that registers a server without requiring you to hand-edit a JSON file.
@@ -133,6 +148,18 @@ The available RPCs are:
 | `mcp.config.remove` | Remove a server from the persistent configuration |
 
 These are especially useful for plugins and installer scripts that need to self-register or de-register their MCP server as part of install/uninstall flows, without requiring the user to manually edit config files.
+
+### Reading MCP Server Resources via Session RPCs
+
+In addition to config management, GitHub Copilot CLI exposes **paginated session RPCs** for reading resources exposed by connected MCP servers. These let agents and tooling access server-provided resource lists and templates without needing direct MCP protocol access:
+
+| RPC | Description |
+|-----|-------------|
+| `session.mcp.resources.read` | Read a specific resource from a connected MCP server |
+| `session.mcp.resources.list` | List resources available on a connected MCP server (paginated) |
+| `session.mcp.resources.listTemplates` | List resource templates exposed by a connected MCP server (paginated) |
+
+Pagination support means these RPCs work reliably even when a server exposes a large number of resources. This is particularly useful for MCP servers that expose dynamic resource collections (such as database schemas or file trees) that need to be enumerated programmatically by agents or scripts.
 
 ### Common MCP Server Configurations
 
@@ -179,6 +206,7 @@ These are especially useful for plugins and installer scripts that need to self-
 Some MCP servers require authentication to connect to protected resources. GitHub Copilot CLI supports several authentication approaches:
 
 - **OAuth**: MCP servers can use the OAuth flow to authenticate with external services. The CLI handles the browser redirect and token storage automatically. This also works when running in ACP (Agent Coordination Protocol) mode.
+- **`client_credentials` grant type**: For fully headless environments where no browser is available and no user interaction is possible (such as server-to-server automation or CI pipelines), MCP servers can authenticate using the OAuth `client_credentials` grant type. This enables machine-to-machine authentication without any browser redirect or device code prompt.
 - **Device code flow (RFC 8628)**: When the CLI runs in a **headless or CI environment** where a browser redirect is not possible, it automatically falls back to the device code flow. You'll see a URL and a code to enter on another device to complete authentication.
 - **`/mcp auth`**: If a token expires or you need to switch accounts, run `/mcp auth` inside a session. This opens the re-authentication UI for any OAuth-enabled MCP server and supports account switching. You can re-authenticate without restarting the session.
 - **Microsoft Entra ID (Azure AD)**: MCP servers that authenticate via Microsoft Entra ID are fully supported. Once you complete the initial login, the CLI caches the authentication and **will not show the consent screen on subsequent connections** — you authenticate once per session rather than every time the server reconnects.
@@ -186,6 +214,8 @@ Some MCP servers require authentication to connect to protected resources. GitHu
 - **`${input:variableName}` prompts**: VS Code will prompt for these values at runtime, keeping secrets out of committed files.
 
 > **Tip**: If your MCP server uses OAuth with Dynamic Client Registration but hosts its authorization metadata at a non-standard URL (as some enterprise servers like Atlassian Rovo do), Copilot CLI handles this automatically.
+
+Copilot CLI can sign in to MCP servers using a **Client ID Metadata Document (CIMD)** for OAuth, an alternative to Dynamic Client Registration where the client's identity is published as a metadata document at a URL instead of being registered ahead of time with the authorization server.
 
 ## How Agents Use MCP Tools
 
@@ -260,13 +290,53 @@ If your team has internal tools or proprietary APIs, you can build custom MCP se
 
 MCP server SDKs are available in [Python](https://github.com/modelcontextprotocol/python-sdk), [TypeScript](https://github.com/modelcontextprotocol/typescript-sdk), and other languages. Browse the [Agents Directory](../../agents/) for examples of agents built around MCP server expertise.
 
+## Troubleshooting MCP Connection Issues
+
+When an MCP server fails to start or loses its connection, Copilot CLI surfaces a warning with actionable details to help you diagnose the problem quickly.
+
+**Failure warnings include stderr output**: If your MCP server prints error messages to stderr (e.g., missing environment variables, connection refused, import errors), those messages are included directly in the CLI warning. This means you usually see the root cause without needing to run the server manually.
+
+For example, a PostgreSQL server that can't connect because `DATABASE_URL` is not set will show:
+
+```
+⚠ MCP server "postgres" failed to start
+  Error: connect ECONNREFUSED 127.0.0.1:5432
+  stderr: Error: DATABASE_URL environment variable is required
+```
+
+**Diagnosing connection problems with `/mcp show`**: Run `/mcp show` to see the current status of all configured MCP servers — which ones are running, which have failed, and their connection details. When an MCP server name contains whitespace, the failure warning also suggests a directly runnable `/mcp show <name>` command for quick inspection.
+
+```
+/mcp show              # list all servers and their status
+/mcp show postgres     # inspect a specific server
+```
+
+**Viewing attached servers with `/mcp list`**: Use `/mcp list` to see which MCP servers are currently attached to your session and their status. Unlike `/mcp show` (which shows all configured servers), `/mcp list` focuses on what's active right now and can run **while the agent is working** — useful for checking server status mid-turn without interrupting the agent:
+
+```
+/mcp list              # show servers attached to this session
+```
+
+You can also open the `/mcp` manager while the agent is working to toggle servers on or off mid-turn. Add, edit, delete, and re-auth actions wait until the turn finishes, but enabling or disabling a server takes effect immediately.
+
+**Toggling servers on and off**: From the `/mcp` list view, you can **enable or disable individual MCP servers** without editing your config file. Select a server in the list and toggle it — disabled servers won't start in future sessions and their tools won't be available to agents. This is useful for temporarily disabling a server that's causing slowdowns or errors without removing it from your configuration entirely.
+
+**Common causes and fixes**:
+
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| `ENOENT` on startup | Missing `npx` / `python` / command | Verify the executable is installed and in your PATH |
+| Auth errors / 401 | Expired or missing API key | Update the `env` field in your config; check `/mcp auth` |
+| Server starts then exits | Server crash | Check stderr output in the warning for the root cause |
+| Server blocked | Organization policy | Contact your admin; switch to an approved server |
+
 ## Best Practices
 
 - **Principle of least privilege**: Only give MCP servers the minimum access they need. Use read-only database connections for analysis agents.
 - **Keep secrets out of config files**: Use `${input:variableName}` for API keys and connection strings, or load from environment variables.
 - **Document your servers**: Add comments or a README explaining which MCP servers your project uses and why.
 - **Version control carefully**: Commit `.mcp.json` or `.vscode/mcp.json` for shared server configurations, but use `.gitignore` for any files containing credentials.
-- **Test server connectivity**: Verify MCP servers start correctly before relying on them in agent workflows.
+- **Test server connectivity**: Verify MCP servers start correctly before relying on them in agent workflows. Use `/mcp show` to check status and read stderr output in any failure warnings.
 - **Use the MCP allowlist (experimental)**: In high-security environments, the `MCP_ALLOWLIST` feature flag lets you validate MCP servers against a configured registry, blocking unrecognized servers from loading. MCP servers that are blocked by the allowlist policy are **hidden from `/mcp show`** to avoid confusion — only permitted servers appear in that view. This is an experimental feature for enterprise environments requiring strict control over which MCP servers are permitted.
 
 ### Organization Policy for Third-Party MCP Servers
@@ -295,6 +365,10 @@ A: MCP servers run with the same permissions as your user account. Follow least-
 **Q: How many MCP servers can I configure?**
 
 A: There's no hard limit, but each server is a running process. Configure only the servers you actively use. Most projects use 1–3 servers.
+
+**Q: I'm using an Azure DevOps repository. Will the GitHub MCP server interfere?**
+
+A: No. Copilot CLI automatically detects Azure DevOps repositories and disables the built-in GitHub MCP server for those sessions. This prevents irrelevant GitHub API calls when your project is hosted on Azure DevOps. Other MCP servers you have configured are unaffected.
 
 ## Next Steps
 

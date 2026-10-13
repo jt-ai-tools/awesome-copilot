@@ -3,7 +3,7 @@ title: 'Using the Copilot Coding Agent'
 description: 'Learn how to use GitHub Copilot coding agent to autonomously work on issues, generate pull requests, and automate development tasks.'
 authors:
   - GitHub Copilot Learning Hub Team
-lastUpdated: 2026-04-16
+lastUpdated: 2026-05-13
 estimatedReadingTime: '12 minutes'
 tags:
   - coding-agent
@@ -327,7 +327,7 @@ This repository provides a curated collection of agents, skills, and hooks desig
 
 ### Adding Hooks from This Repo
 
-1. Browse the [Hooks Directory](../../hooks/) for automation hooks
+1. Browse the [Hooks documentation](https://github.com/github/awesome-copilot/blob/main/docs/README.hooks.md) for automation hooks
 2. Copy the `hooks.json` content into a file in `.github/hooks/` in your repository
 3. Copy any referenced scripts alongside it
 4. The hooks will run automatically during coding agent sessions
@@ -346,10 +346,12 @@ Launch a session that registers with GitHub for remote access:
 copilot --remote
 ```
 
-Or open a remote control tab from inside an existing session:
+Or open a remote control tab from inside an existing session, and check or toggle its state:
 
 ```
-/remote
+/remote             # show current remote control status
+/remote on          # enable remote control and register with GitHub
+/remote off         # disable remote control for this session
 ```
 
 The **Remote** tab in the CLI shows all active coding agent tasks from the repository. Select a task to connect and begin sending steering messages.
@@ -361,6 +363,8 @@ Remote sessions also appear in the `--resume` picker, so you can reconnect to a 
 ```bash
 copilot --resume
 ```
+
+Since v1.0.47, `--resume` also surfaces **cloud agent sessions that haven't yet pushed any changes** to their branch — useful for connecting to a session early in its run, before it has committed anything.
 
 ### Why Use Remote Control?
 
@@ -447,6 +451,6 @@ A: Yes. You can specify which agent to use when assigning work — the coding ag
 - **Add Guardrails**: [Automating with Hooks](../automating-with-hooks/) — Ensure code quality in autonomous sessions
 - **Build Custom Agents**: [Building Custom Agents](../building-custom-agents/) — Create specialized agents for the coding agent to use
 - **Explore Configuration**: [Copilot Configuration Basics](../copilot-configuration-basics/) — Set up repository-level customizations
-- **Browse Community Resources**: Explore the [Agents](../../agents/), [Skills](../../skills/), and [Hooks](../../hooks/) directories for ready-to-use resources
+- **Browse Community Resources**: Explore the [Agents](../../agents/), [Skills](../../skills/), and [Plugins](../../plugins/) directories for ready-to-use resources
 
 ---

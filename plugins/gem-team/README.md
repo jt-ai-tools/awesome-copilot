@@ -1,200 +1,244 @@
-# 💎 Gem Team
+# Gem Team
 
-> Multi-agent orchestration framework for spec-driven development and automated verification.
+**Turn AI coding into an engineering process.**
 
-[![Copilot Plugin](https://img.shields.io/badge/Plugin-Awesome%20Copilot-0078D4?style=flat-square&logo=microsoft)](https://awesome-copilot.github.com/plugins/#file=plugins%2Fgem-team)
-![Version](https://img.shields.io/badge/Version-1.6.6-6366f1?style=flat-square)
+> Agent definitions that enforce good software engineering: optimizing cost, time, and quality.
 
----
+<p align="center">
+  <a href="https://mubaidr.github.io/gem-team/"><b>Visit Homepage</b></a>
+</p>
 
-## 🤔 Why Gem Team?
+<br/>
 
-- ⚡ **4x Faster** — Parallel execution with wave-based execution
-- 🏆 **Higher Quality** — Specialized agents + TDD + verification gates + contract-first
-- 🔒 **Built-in Security** — OWASP scanning, secrets/PII detection on critical tasks
-- 👁️ **Full Visibility** — Real-time status, clear approval gates
-- 🛡️ **Resilient** — Pre-mortem analysis, failure handling, auto-replanning
-- ♻️ **Pattern Reuse** — Codebase pattern discovery prevents reinventing wheels
-- 📏 **Established Patterns** — Uses library/framework conventions over custom implementations
-- 🪞 **Self-Correcting** — All agents self-critique at 0.85 confidence threshold
-- 📋 **Source Verified** — Every factual claim cites its source; no guesswork
-- ♿ **Accessibility-First** — WCAG compliance validated at spec and runtime layers
-- 🔬 **Smart Debugging** — Root-cause analysis with stack trace parsing + confidence-scored fixes
-- 🚀 **Safe DevOps** — Idempotent operations, health checks, mandatory approval gates
-- 🔗 **Traceable** — Self-documenting IDs link requirements → tasks → tests → evidence
-- 📚 **Knowledge-Driven** — Prioritized sources (PRD → codebase → AGENTS.md → Context7 → docs)
-- 🛠️ **Skills & Guidelines** — Built-in skill & guidelines (web-design-guidelines)
-- 📐 **Spec-Driven** — Multi-step refinement defines "what" before "how"
-- 🌊 **Wave-Based** — Parallel agents with integration gates per wave
-- 🗂️ **Verified-Plan** — Complex tasks: Plan → Verificationn → Critic
-- 🔎 **Final Review** — Optional user-triggered comprehensive review of all changed files
-- 🩺 **Diagnose-then-Fix** — gem-debugger diagnoses → gem-implementer fixes → re-verifies
-- ⚠️ **Pre-Mortem** — Failure modes identified BEFORE execution
-- 💬 **Constructive Critique** — gem-critic challenges assumptions, finds edge cases
-- 📝 **Contract-First** — Contract tests written before implementation
-- 📱 **Mobile Agents** — Native mobile implementation (React Native, Flutter) + iOS/Android testing
+<p align="center">
+  <img src="https://img.shields.io/badge/APM-mubaidr/gem--team-blue?style=flat-square" alt="APM package: mubaidr/gem-team">
+  <img src="https://img.shields.io/github/v/release/mubaidr/gem-team?style=flat-square&color=important" alt="Latest release">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-green?style=flat-square" alt="Apache-2.0 license">
+  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="Pull requests welcome">
+</p>
 
----
+## Real-world performance
 
-## 📦 Installation
+> Sub-$0.001 per API call on 100K+ token contexts. 82.8M+ tokens processed across 666 agent runs, with typical responses completing in 2-5 seconds. Prompt caching turns large contexts into sub-penny operations — a 10x cost reduction vs. uncached input.
+
+_Observed during Gem-Team development using DeepSeek V4.1 Flash via CommandCode._
+
+## The Problem
+
+Current AI coding is often one-off and ad-hoc. You get code, but you don't get a repeatable process. This leads to inconsistent quality, wasted tokens, and a lack of long-term learning.
+
+## The Solution
+
+Gem Team wraps your AI with a disciplined engineering delivery system. It enforces good software engineering practices automatically, so you get better results with less effort.
+
+## Why Gem Team?
+
+- **Quality by Default**: TDD and acceptance checks always apply; reviews and security audits run when risk requires them. No more "vibe coding" that breaks in production.
+- **Smart & Efficient**: 40-60% less context per task through scoped handoffs and proportional architecture. Cached tokens and compact evidence paths keep costs predictable and your AI focused.
+- **Works With Your Tools**: Seamless integration with Copilot, Claude, Cursor, Codex, Gemini, and Windsurf. Use your preferred environment.
+- **Learns & Improves**: Remembers what works and extracts reusable skills. Your AI gets smarter and more efficient over time.
+- **Resumable Plans**: Every MEDIUM/HIGH task gets a persistent plan ID. Pause, resume, or extend work without losing context or re-discovering what you already know.
+- **Works With Any Model**: Hardened output contracts and relational invariant fallbacks mean every agent works across commercial and open models — not just the ones that memorized your schema.
+
+### Intelligent Model Routing
+
+Gem Team automatically uses the right model for each kind of work:
+
+- **Premium models** handle planning, debugging, and review where deeper reasoning matters.
+- **Explore models** handle research, implementation, testing, documentation, and other bounded tasks efficiently.
+- **Configurable tiers** let you choose the models and providers that fit your budget and workflow.
+
+This gives you stronger verification where it matters without paying the highest model cost for every task. Configure it once in `.gem-team.yaml`:
+
+```yaml
+model_routing:
+  enabled: true
+  tiers:
+    premium: "your-strong-model (provider)"
+    explore: "your-fast-model (provider)"
+```
+
+**TL;DR:** Gem Team turns AI coding into a structured, repeatable engineering process with built-in quality, efficiency, and learning.
+
+## Quick Start
+
+Install [APM](https://microsoft.github.io/apm/) first:
 
 ```bash
-# Using Copilot CLI
-copilot plugin install gem-team@awesome-copilot
+# macOS / Linux
+curl -sSL https://aka.ms/apm-unix | sh
+
+# Windows PowerShell
+irm https://aka.ms/apm-windows | iex
+
+# Verify
+apm --version
 ```
 
-> **[Install Gem Team Now →](https://aka.ms/awesome-copilot/install/agent?url=vscode%3Achat-agent%2Finstall%3Furl%3Dhttps%253A%252F%252Fraw.githubusercontent.com%252Fgithub%252Fawesome-copilot%252Fmain%252F.%252Fagents)**
+Install Gem Team into your current project:
 
----
-
-## 🔄 Core Workflow
-
-**Phase Flow:** User Goal → Orchestrator → Discuss (medium|complex) → PRD → Research → Planning → Plan Review (medium|complex) → Execution → Summary → [Optional] Final Review
-
-**Error Handling:** Diagnose-then-Fix loop (Debugger → Implementer → Re-verify)
-
-**Orchestrator** auto-detects phase and routes accordingly. Any feedback or steer message is handled to re-plan.
-
-| Condition | Phase |
-|:----------|:------|
-| No plan + simple | Research |
-| No plan + medium\|complex | Discuss → PRD → Research |
-| Plan + pending tasks | Execution |
-| Plan + feedback | Planning |
-| Plan + completed → Summary | User decision (feedback / final review / approve) |
-| User requests final review | Final Review (parallel gem-reviewer + gem-critic) |
-
----
-
-## 🏗️ Architecture
-
-```mermaid
-flowchart
-    USER["User Goal"]
-
-    subgraph ORCH["Orchestrator"]
-        detect["Phase Detection"]
-    end
-
-    subgraph PHASES
-        DISCUSS["🔹 Discuss"]
-        PRD["📋 PRD"]
-        RESEARCH["🔍 Research"]
-        PLANNING["📝 Planning"]
-        EXEC["⚙️ Execution"]
-        SUMMARY["📊 Summary"]
-        FINAL["🔎 Final Review"]
-    end
-
-    DIAG["🔬 Diagnose-then-Fix"]
-
-    USER --> detect
-
-    detect --> |"Simple"| RESEARCH
-    detect --> |"Medium|Complex"| DISCUSS
-
-    DISCUSS --> PRD
-    PRD --> RESEARCH
-    RESEARCH --> PLANNING
-    PLANNING --> |"Approved"| EXEC
-    PLANNING --> |"Feedback"| PLANNING
-    EXEC --> |"Failure"| DIAG
-    DIAG --> EXEC
-    EXEC --> SUMMARY
-    SUMMARY --> |"Review files"| FINAL
-    FINAL --> |"Clean"| SUMMARY
-
-    PLANNING -.-> |"critique"| critic
-    PLANNING -.-> |"review"| reviewer
-
-    EXEC --> |"parallel ≤4"| agents
-    EXEC --> |"post-wave (complex)"| critic
+```bash
+apm install mubaidr/gem-team --target copilot,claude,cursor,opencode,codex,gemini,windsurf
 ```
 
----
+Or install for one target only:
 
-## 🤖 The Agent Team (Q2 2026 SOTA)
-
-| Role | Description | Output | Recommended LLM |
-|:-----|:------------|:-------|:---------------|
-| 🎯 **ORCHESTRATOR** (`gem-orchestrator`) | The team lead: Orchestrates research, planning, implementation, and verification | 📋 PRD, plan.yaml | **Closed:** GPT-5.4, Gemini 3.1 Pro, Claude Sonnet 4.6<br>**Open:** GLM-5, Kimi K2.5, Qwen3.5 |
-| 🔍 **RESEARCHER** (`gem-researcher`) | Codebase exploration — patterns, dependencies, architecture discovery | 🔍 findings | **Closed:** Gemini 3.1 Pro, GPT-5.4, Claude Sonnet 4.6<br>**Open:** GLM-5, Qwen3.5-9B, DeepSeek-V3.2 |
-| 📋 **PLANNER** (`gem-planner`) | DAG-based execution plans — task decomposition, wave scheduling, risk analysis | 📄 plan.yaml | **Closed:** Gemini 3.1 Pro, Claude Sonnet 4.6, GPT-5.4<br>**Open:** Kimi K2.5, GLM-5, Qwen3.5 |
-| 🔧 **IMPLEMENTER** (`gem-implementer`) | TDD code implementation — features, bugs, refactoring. Never reviews own work | 💻 code | **Closed:** Claude Opus 4.6, GPT-5.4, Gemini 3.1 Pro<br>**Open:** DeepSeek-V3.2, GLM-5, Qwen3-Coder-Next |
-| 🧪 **BROWSER TESTER** (`gem-browser-tester`) | E2E browser testing, UI/UX validation, visual regression with Playwright | 🧪 evidence | **Closed:** GPT-5.4, Claude Sonnet 4.6, Gemini 3.1 Flash<br>**Open:** Llama 4 Maverick, Qwen3.5-Flash, MiniMax M2.7 |
-| 🚀 **DEVOPS** (`gem-devops`) | Infrastructure deployment, CI/CD pipelines, container management | 🌍 infra | **Closed:** GPT-5.4, Gemini 3.1 Pro, Claude Sonnet 4.6<br>**Open:** DeepSeek-V3.2, GLM-5, Qwen3.5 |
-| 🛡️ **REVIEWER** (`gem-reviewer`) | Security auditing, code review, OWASP scanning, PRD compliance verification | 📊 review report | **Closed:** Claude Opus 4.6, GPT-5.4, Gemini 3.1 Pro<br>**Open:** Kimi K2.5, GLM-5, DeepSeek-V3.2 |
-| 📝 **DOCUMENTATION** (`gem-documentation-writer`) | Technical documentation, README files, API docs, diagrams, walkthroughs | 📝 docs | **Closed:** Claude Sonnet 4.6, Gemini 3.1 Flash, GPT-5.4 Mini<br>**Open:** Llama 4 Scout, Qwen3.5-9B, MiniMax M2.7 |
-| 🔬 **DEBUGGER** (`gem-debugger`) | Root-cause analysis, stack trace diagnosis, regression bisection, error reproduction | 🔬 diagnosis | **Closed:** Gemini 3.1 Pro (Retrieval King), Claude Opus 4.6, GPT-5.4<br>**Open:** DeepSeek-V3.2, GLM-5, Qwen3-Coder-Next |
-| 🎯 **CRITIC** (`gem-critic`) | Challenges assumptions, finds edge cases, spots over-engineering and logic gaps | 💬 critique | **Closed:** Claude Sonnet 4.6, GPT-5.4, Gemini 3.1 Pro<br>**Open:** Kimi K2.5, GLM-5, Qwen3.5 |
-| ✂️ **SIMPLIFIER** (`gem-code-simplifier`) | Refactoring specialist — removes dead code, reduces complexity, consolidates duplicates | ✂️ change log | **Closed:** Claude Opus 4.6, GPT-5.4, Gemini 3.1 Pro<br>**Open:** DeepSeek-V3.2, GLM-5, Qwen3-Coder-Next |
-| 🎨 **DESIGNER** (`gem-designer`) | UI/UX design specialist — layouts, themes, color schemes, design systems, accessibility | 🎨 DESIGN.md | **Closed:** GPT-5.4, Gemini 3.1 Pro, Claude Sonnet 4.6<br>**Open:** Qwen3.5, GLM-5, MiniMax M2.7 |
-| 📱 **IMPLEMENTER-MOBILE** (`gem-implementer-mobile`) | Mobile implementation — React Native, Expo, Flutter with TDD | 💻 code | **Closed:** Claude Opus 4.6, GPT-5.4, Gemini 3.1 Pro<br>**Open:** DeepSeek-V3.2, GLM-5, Qwen3-Coder-Next |
-| 📱 **DESIGNER-MOBILE** (`gem-designer-mobile`) | Mobile UI/UX specialist — HIG, Material Design, safe areas, touch targets | 🎨 DESIGN.md | **Closed:** GPT-5.4, Gemini 3.1 Pro, Claude Sonnet 4.6<br>**Open:** Qwen3.5, GLM-5, MiniMax M2.7 |
-| 📱 **MOBILE TESTER** (`gem-mobile-tester`) | Mobile E2E testing — Detox, Maestro, iOS/Android simulators | 🧪 evidence | **Closed:** GPT-5.4, Claude Sonnet 4.6, Gemini 3.1 Flash<br>**Open:** Llama 4 Maverick, Qwen3.5-Flash, MiniMax M2.7 |
-
-### Agent File Skeleton
-
-Each `.agent.md` file follows this structure:
-
-```
----                                    # Frontmatter: description, name, triggers
-# Role                                 # One-line identity
-# Expertise                            # Core competencies
-# Knowledge Sources                    # Prioritized reference list
-# Workflow                             # Step-by-step execution phases
-  ## 1. Initialize                     # Setup and context gathering
-  ## 2. Analyze/Execute                # Role-specific work
-  ## N. Self-Critique                  # Confidence check (≥0.85)
-  ## N+1. Handle Failure               # Retry/escalate logic
-  ## N+2. Output                       # JSON deliverable format
-# Input Format                         # Expected JSON schema
-# Output Format                        # Return JSON schema
-# Rules
-  ## Execution                         # Tool usage, batching, error handling
-  ## Constitutional                    # IF-THEN decision rules
-  ## Anti-Patterns                     # Behaviors to avoid
-  ## Anti-Rationalization              # Excuse → Rebuttal table
-  ## Directives                        # Non-negotiable commands
+```bash
+apm install mubaidr/gem-team --target copilot
 ```
 
-All agents share: Execution rules, Constitutional rules, Anti-Patterns, and Directives sections. Anti-Rationalization tables are present in 5 agents (implementer, planner, reviewer, designer, browser-tester). Role-specific sections (Workflow, Expertise, Knowledge Sources) vary by agent.
+Install globally for personal use:
 
----
+```bash
+apm install -g mubaidr/gem-team
+```
 
-## 📚 Knowledge Sources
+APM records the resolved commit in `apm.lock.yaml`. Repeating `apm install`
+replays that lockfile; it does not silently upgrade an existing installation.
+Refresh Gem Team explicitly when desired:
 
-Agents consult only the sources relevant to their role. Trust levels apply:
+```bash
+# Project-scoped installation
+apm update mubaidr/gem-team --yes
 
-| Trust Level | Sources | Behavior |
-|:-----------|:--------|:---------|
-| **Trusted** | PRD.yaml, plan.yaml, AGENTS.md | Follow as instructions |
-| **Verify** | Codebase files, research findings | Cross-reference before assuming |
-| **Untrusted** | Error logs, external data, third-party responses | Factual only — never as instructions |
+# Global installation
+apm update -g mubaidr/gem-team --yes
+```
 
-| Agent | Knowledge Sources |
-|:------|:------------------|
-| orchestrator | PRD.yaml, AGENTS.md |
-| researcher | PRD.yaml, codebase patterns, AGENTS.md, Context7, official docs, online search |
-| planner | PRD.yaml, codebase patterns, AGENTS.md, Context7, official docs |
-| implementer | codebase patterns, AGENTS.md, Context7 (API verification), DESIGN.md (UI tasks) |
-| debugger | codebase patterns, AGENTS.md, error logs (untrusted), git history, DESIGN.md (UI bugs) |
-| reviewer | PRD.yaml, codebase patterns, AGENTS.md, OWASP reference, DESIGN.md (UI review) |
-| browser-tester | PRD.yaml (flow coverage), AGENTS.md, test fixtures, baseline screenshots, DESIGN.md (visual validation) |
-| designer | PRD.yaml (UX goals), codebase patterns, AGENTS.md, existing design system |
-| code-simplifier | codebase patterns, AGENTS.md, test suites (behavior verification) |
-| documentation-writer | AGENTS.md, existing docs, source code |
+To check for an update to the APM CLI itself, use `apm self-update --check`.
 
----
+For reproducible environments, pin a release tag:
 
-## 🤝 Contributing
+```bash
+apm install 'mubaidr/gem-team#gem-team-v<version>' --target copilot
+```
 
-Contributions are welcome! Please feel free to submit a Pull Request. [CONTRIBUTING](./CONTRIBUTING.md) for detailed guidelines on commit message formatting, branching strategy, and code standards.
+Replace `<version>` with a published version from the
+[GitHub Releases](https://github.com/mubaidr/gem-team/releases) page.
 
-## 📄 License
+After the first install, commit the generated APM files that belong to your repo, especially `apm.yml`, `apm.lock.yaml`, and the generated harness directories such as `.github/`, `.claude/`, `.cursor/`, `.opencode/`, `.codex/`, `.gemini/`, or `.windsurf/`. Do **not** commit `apm_modules/`.
 
-This project is licensed under the MIT License.
+> APM can auto-detect targets from existing harness directories, but explicit `--target` is recommended for predictable installs and fresh repositories.
+>
+> Direct Git installs use the canonical sources in `.apm/`. Maintainers do not
+> need to commit `build/`; release archives and checksums are generated and
+> attached automatically to each GitHub Release.
 
-## 💬 Support
+## The Process
 
-If you encounter any issues or have questions, please [open an issue](https://github.com/mubaidr/gem-team/issues) on GitHub.
+Gem Team uses a structured workflow to turn AI coding into a reliable engineering process:
+
+1. **Route**: Classify the request from supplied evidence and select only the workflow depth it needs.
+2. **Plan**: Use an in-memory wave plan for TRIVIAL/LOW work or a persistent, planner-confirmed wave plan for MEDIUM/HIGH work.
+3. **Build**: Execute every wave plan through the same ordered-wave loop, using TDD and specialist agents.
+4. **Verify**: Check every task and run reviewer integration checks only when changed-scope risk requires them.
+5. **Learn**: Promote only stable, high-confidence patterns after successful execution.
+
+## Features
+
+- **Risk-Based Quality Gates**: TDD and deterministic verification always apply; specialist reviews and audits run when the plan or changed scope requires them.
+- **Effortless Context**: Progressive context management prevents bloat. Scoped handoffs, bounded `planning_context`, and evidence-by-reference keep each agent's token footprint minimal while maximizing cached token reuse across waves.
+- **Smart Routing**: Tasks are automatically routed to the right agents based on complexity.
+- **Parallel Execution**: Independent tasks run in parallel within waves; overlapping ownership is serialized to prevent conflicts.
+- **Resumable Plans**: Every MEDIUM/HIGH task gets a persistent plan ID and `plan.yaml`. Pause, resume, or extend work without losing context.
+- **Reusable Knowledge**: High-confidence patterns and skills are extracted and reused for future tasks.
+- **Cost Efficiency**: Model routing, output hygiene, and compact handoffs ensure you only use the tokens you need. Evidence travels by reference, not by copy — keeping context usage low and cache hits high across waves.
+- **Failure Classification**: Every failure is classified (retry, fixable, replan, flaky, regression, platform-specific, test-bug) so the Orchestrator routes it to the right agent instead of blindly retrying.
+- **Verification Boundary**: The Orchestrator never re-verifies or second-guesses specialist output. Verification is owned exclusively by the specialist responsible for the work.
+- **Quality Directives**: Every agent follows specific rules that prevent common AI coding issues: no dead buttons, no buzzwords, no template filler, and every decision has a reason.
+
+## How it Works
+
+Gem Team installs a set of specialized agents that work together under the guidance of an Orchestrator. This team follows a disciplined workflow that includes planning, implementation, verification, and learning.
+
+- **Specialist Agents**: Dedicated agents for planning, research, implementation, review, and more.
+- **Orchestration**: One wave loop coordinates ordered work, parallel tasks, bounded retries, and final acceptance checks at every complexity level.
+- **Context Management**: Execution agents receive an authoritative `task_definition` with a nested `handoff`; constraints, evidence, and prior-wave outputs travel through it. Planner receives a bounded `planning_context`; reviewer uses a dedicated review `handoff`; every delegate receives only a role-scoped configuration snapshot.
+
+### Agent Roles
+
+| Role                | Description                                                                                                                                                                                                                   |
+| :------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Orchestrator**    | Classifies intent, routes work, tracks state, and enforces verification gates. Never re-verifies specialist output.                                                                                                           |
+| **Planner**         | Creates bounded wave plans with YAGNI/KISS scope reduction and concern-separated slices: milestones, routing, handoffs, risks, and criteria.                                                                                  |
+| **Implementer**     | Implements features, fixes, and refactors with TDD. Covers happy paths, boundaries, errors, and state transitions. Applies SOLID, fail-fast, and least-surprise. Every major decision has a one-line reason. No dead buttons. |
+| **Reviewer**        | Independent reviews for quality, security, and compliance. Read-only critic mode for decisions. Verifies every decision has a reason. Flags dead buttons and external script patches as blocking issues.                      |
+| **Debugger**        | Root-cause analysis, stack traces, regression bisection. Adds a reproduction test; never implements fixes.                                                                                                                    |
+| **Researcher**      | Codebase exploration in five budgeted modes: scan, question, audit, trace, deep.                                                                                                                                              |
+| **Browser Tester**  | E2E browser tests with visual, accessibility, performance, network, and regression checks.                                                                                                                                    |
+| **Mobile Tester**   | Mobile E2E on iOS/Android with Detox, Maestro, or Appium.                                                                                                                                                                     |
+| **DevOps**          | Infrastructure, CI/CD, containers, health checks, rollback, and production approvals.                                                                                                                                         |
+| **Documentation**   | Technical docs, READMEs, API references, diagrams, and walkthroughs. No buzzwords. Every section exists because the product needs it. No fabricated statistics.                                                               |
+| **Code Simplifier** | Removes dead code, reduces complexity, consolidates duplicates, and improves naming. Every refactoring has a one-line reason. No buzzwords. Removes AI-slop comments.                                                         |
+| **Skill Creator**   | Extracts high-confidence patterns into reusable `SKILL.md` files and assets.                                                                                                                                                  |
+
+## Compatible Tools
+
+Gem Team works with your favorite AI coding tools:
+
+| Tool         | Harness             | Description                          |
+| :----------- | :------------------ | :----------------------------------- |
+| **Copilot**  | `.github/agents/`   | VS Code Copilot / GitHub Copilot CLI |
+| **Claude**   | `.claude/agents/`   | Claude Code                          |
+| **Cursor**   | `.cursor/agents/`   | Cursor                               |
+| **OpenCode** | `.opencode/agents/` | OpenCode                             |
+| **Codex**    | `.codex/agents/`    | Codex CLI                            |
+| **Gemini**   | `GEMINI.md`         | Gemini CLI                           |
+| **Windsurf** | `.windsurf/rules/`  | Windsurf / Cascade                   |
+
+## Configuration
+
+Gem Team is designed to work out of the box with smart defaults. You can customize behavior by editing the `AGENTS.md` file or specific agent definitions in the `.apm/agents/` directory.
+
+### Reviewer and critic modes
+
+`gem-reviewer` uses three independent axes:
+
+- `review_mode`: `standard`, `high`, or `critic` controls review intensity.
+- `review_target`: `plan`, `task`, `code`, `decision`, `docs`, `config`, or `integration` selects what is reviewed.
+- `review_scope`: `changed`, `affected`, or `full` limits the evidence breadth.
+
+TRIVIAL/LOW work does not invoke the planner or reviewer during planning.
+MEDIUM/HIGH work receives one pre-execution plan review: standard for MEDIUM,
+high for HIGH or high-risk work, and critic for architecture, breaking-change,
+or cross-domain signals. Later integration review is risk-triggered, not a
+routine wave gate.
+
+Discussion is answered directly. A requested evaluation or decision becomes a
+read-only challenge with `review_mode: critic`, `review_target: decision`, and
+`review_scope: full`. Critic mode does not mutate files or claim implementation.
+Its subject and context are passed through `handoff`:
+
+```yaml
+review_mode: critic
+review_target: decision
+review_scope: full
+handoff:
+  critic_subject:
+    objective: str
+    proposal: str
+    constraints:
+      - str
+    alternatives:
+      - str
+    evidence:
+      - str
+    decision_needed: str
+  critic_context:
+    audience: str
+    time_horizon: str
+    success_criteria:
+      - str
+    known_unknowns:
+      - str
+```
+
+## Learn More
+
+- [Documentation](https://mubaidr.github.io/gem-team/)
+- [Contributing](https://mubaidr.github.io/gem-team/5.resources/2.contributing.html)
+- [License](LICENSE)
+
+## Support
+
+If you have questions or need help, please open an issue on [GitHub](https://github.com/mubaidr/gem-team/issues).

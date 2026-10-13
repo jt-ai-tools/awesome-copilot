@@ -1,5 +1,9 @@
 The following instructions are only to be applied when performing a code review.
 
+Use `.github/skills/code-review/SKILL.md` for repository-fit, differentiation,
+provenance, validation, and editorial-quality review criteria. Apply the
+deterministic file-format checks below as well.
+
 ## README updates
 
 - [ ] The new file should be added to the `docs/README.<type>.md`.
@@ -59,7 +63,7 @@ The following instructions are only to be applied when performing a code review.
 
 **Only apply to directories in the `plugins/` directory**
 
-- [ ] The plugin directory contains a `.github/plugin/plugin.json` file.
+- [ ] The plugin directory contains a root `plugin.json` file.
 - [ ] The plugin directory contains a `README.md` file.
 - [ ] The plugin.json has a `name` field matching the directory name.
 - [ ] The plugin.json has a `description` field.

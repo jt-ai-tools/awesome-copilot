@@ -3,7 +3,7 @@ title: 'Creating Effective Skills'
 description: 'Master the art of writing reusable, shareable skill folders that deliver consistent results across your team.'
 authors:
   - GitHub Copilot Learning Hub Team
-lastUpdated: 2026-02-26
+lastUpdated: 2026-09-12
 estimatedReadingTime: '9 minutes'
 tags:
   - skills
@@ -135,6 +135,24 @@ The `description` field is critical for agent discovery. Write it so that agents
 ❌ **Poor**: `'Commit helper'`
 
 Include trigger keywords and contextual cues that help agents match the skill to user intent.
+
+### Optional Fields
+
+**argument-hint** *(v1.0.64+)*: A short label that appears in the slash-command input placeholder to guide the user on what argument to provide. For example, a `generate-tests` skill might set:
+
+```yaml
+argument-hint: 'Enter function or file to test'
+```
+
+When the user types `/generate-tests` in VS Code Chat, the hint appears as placeholder text in the input box, making the expected input immediately obvious.
+
+```yaml
+---
+name: generate-tests
+description: 'Generate comprehensive unit tests for the selected code, covering happy path, edge cases, and error conditions'
+argument-hint: 'Enter function, class, or file to test'
+---
+```
 
 ## Real Examples from the Repository
 
@@ -347,7 +365,26 @@ Use [scripts/parse-test-output.sh](scripts/parse-test-output.sh) to extract stru
 
 **Q: How do I invoke a skill?**
 
-A: Skills can be invoked in two ways. Users can type the skill name as a `/command` in VS Code Chat (e.g., `/generate-tests`). Agents can also discover and invoke skills automatically based on the skill's description and the user's intent.
+A: Skills can be invoked in several ways:
+- **Slash command**: Type the skill name anywhere in your message (e.g., `/generate-tests fix the failing tests`). Since v1.0.44, slash commands can appear mid-input — you don't have to start with them.
+- **Multiple skills in one message**: You can invoke multiple skills in a single message (e.g., `/generate-tests and then /conventional-commit`). Both skills will be executed in sequence.
+- **Agent discovery**: Agents can also discover and invoke skills automatically based on the skill's `description` and the user's intent — no slash command required.
+
+**Q: How do I manage skills from the CLI?**
+
+A: The `copilot skill` subcommand (v1.0.65+) lets you list, add, and remove skills directly from the terminal without editing config files manually:
+
+```bash
+copilot skill list                      # list all currently loaded skills
+copilot skill add ./my-skill/           # add a skill from a local directory
+copilot skill add https://example.com/skill.zip  # add a skill from a URL
+copilot skill add ./my-skill/ --project # add a skill scoped to this project (v1.0.84+)
+copilot skill remove my-skill           # remove an installed skill by name
+```
+
+You can also run `/skill` (or the existing `/skills`) inside an interactive session to see what's loaded. The `copilot skill` subcommand is the recommended way to install skills that aren't packaged inside a plugin.
+
+> **Breaking change (v1.0.84+)**: `copilot skill add --project` replaces the retired `copilot plugins install --skill --scope project` syntax; the `--scope` spelling is no longer accepted.
 
 **Q: How are skills different from prompts?**
 
@@ -361,13 +398,23 @@ A: Yes! Skills are folders, not single files. You can bundle reference documents
 
 A: Store skill folders in your repository's `.github/skills/` directory. They're automatically available to all team members with Copilot access when working in that repository.
 
-**Q: Can agents chain multiple skills?**
+**Q: Can I invoke multiple skills in one message?**
 
-A: Agents can discover and invoke multiple skills during a conversation based on user intent. Each skill invocation is independent, but agents maintain conversation context across invocations.
+A: Yes, since v1.0.44. You can include multiple slash commands in a single message (e.g., `/generate-tests and then /conventional-commit`), and the CLI will execute each skill in sequence. Agents can also discover and chain multiple skills during a conversation based on user intent. Each skill invocation is independent, but agents maintain conversation context across invocations.
 
 **Q: Should skills include code examples?**
 
 A: Yes, for clarity. Show examples of desired output format, patterns to follow, or anti-patterns to avoid. For complex schemas or formats, consider bundling them as reference files rather than inline examples.
+
+**Q: How do I review agent-proposed skill changes?**
+
+A: In v1.0.66+, the agent can propose draft skill additions or improvements as it discovers reusable patterns during a session. In v1.0.70+, **Forge** actively identifies clear workflow patterns during your session and creates draft skills automatically — you don't need to ask. Review each draft interactively with:
+
+```
+/chronicle skills review
+```
+
+This opens a review flow where you can accept, reject, or defer each proposed change — giving you full control over how your skill library evolves. No changes are applied until you approve them.
 
 ## Common Pitfalls to Avoid
 

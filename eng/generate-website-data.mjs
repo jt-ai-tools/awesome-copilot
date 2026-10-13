@@ -2,37 +2,52 @@
 
 /**
  * Generate JSON metadata files for the GitHub Pages website.
- * This script extracts metadata from agents, instructions, skills, hooks, and plugins
+ * This script extracts metadata from agents, instructions, skills, and plugins
  * and writes them to website/data/ for client-side search and display.
  */
 
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { execSync } from "child_process";
 import {
   AGENTS_DIR,
   COOKBOOK_DIR,
-  HOOKS_DIR,
+  EXTENSIONS_DIR,
   INSTRUCTIONS_DIR,
   PLUGINS_DIR,
   ROOT_FOLDER,
   SKILLS_DIR,
-  WORKFLOWS_DIR,
 } from "./constants.mjs";
 import { getGitFileDates } from "./utils/git-dates.mjs";
 import {
   parseFrontmatter,
-  parseHookMetadata,
   parseSkillMetadata,
-  parseWorkflowMetadata,
   parseYamlFile,
 } from "./yaml-parser.mjs";
+import { readExternalPlugins } from "./external-plugin-validation.mjs";
+import {
+  readExtensionPluginOwners,
+  resolveExtensionPluginName,
+} from "./extension-plugin-ownership.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 
 const WEBSITE_DIR = path.join(ROOT_FOLDER, "website");
 const WEBSITE_DATA_DIR = path.join(WEBSITE_DIR, "public", "data");
 const WEBSITE_SOURCE_DATA_DIR = path.join(WEBSITE_DIR, "data");
+const EXTERNAL_CANVAS_KEYWORD = "canvas";
+const EXTERNAL_CANVAS_PREVIEW_PATH = "assets/preview.png";
+
+function hasExtensionEntryPoint(extensionDir, extensionName) {
+  const candidateEntryPoints = [
+    path.join(extensionDir, "extension.mjs"),
+    path.join(extensionDir, "extensions", "extension.mjs"),
+    path.join(extensionDir, "extensions", extensionName, "extension.mjs"),
+  ];
+
+  return candidateEntryPoints.some((entryPointPath) => fs.existsSync(entryPointPath));
+}
 
 /**
  * Ensure the output directory exists
@@ -62,6 +77,108 @@ function extractTitle(filePath, frontmatter) {
     .split("-")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+/**
+ * Convert kebab/snake names into readable titles.
+ */
+function formatDisplayName(value) {
+  const acronymMap = new Map([
+    ["ai", "AI"],
+    ["api", "API"],
+    ["cli", "CLI"],
+    ["css", "CSS"],
+    ["html", "HTML"],
+    ["json", "JSON"],
+    ["llm", "LLM"],
+    ["mcp", "MCP"],
+    ["ui", "UI"],
+    ["ux", "UX"],
+    ["vscode", "VS Code"],
+  ]);
+
+  return value
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (acronymMap.has(lower)) {
+        return acronymMap.get(lower);
+      }
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+function normalizeText(value, fallback = "") {
+  return typeof value === "string" ? value.trim() : fallback;
+}
+
+function normalizeRepoRelativePath(value) {
+  const normalized = normalizeText(value);
+  if (!normalized || normalized === "/") {
+    return "";
+  }
+
+  return normalized.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+function joinRepoPath(...segments) {
+  return segments
+    .map((segment) => String(segment ?? "").trim())
+    .filter(Boolean)
+    .join("/")
+    .replace(/\/+/g, "/");
+}
+
+/**
+ * Normalize an author value (npm string form or { name, url } object) to
+ * { name, url? } | null. Returns null when no usable name is present.
+ */
+function normalizeAuthor(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const name = value.trim();
+    return name ? { name } : null;
+  }
+  if (typeof value === "object") {
+    const name = normalizeText(value.name);
+    if (!name) return null;
+    const url = normalizeText(value.url);
+    return url ? { name, url } : { name };
+  }
+  return null;
+}
+
+/**
+ * Find the latest git-modified date for any file under a directory.
+ */
+function getDirectoryLastUpdated(gitDates, relativeDirPath) {
+  const prefix = `${relativeDirPath}/`;
+  let latestDate = null;
+  let latestTime = 0;
+
+  for (const [filePath, date] of gitDates.entries()) {
+    if (!filePath.startsWith(prefix)) continue;
+    const timestamp = Date.parse(date);
+    if (!Number.isNaN(timestamp) && timestamp > latestTime) {
+      latestTime = timestamp;
+      latestDate = date;
+    }
+  }
+
+  return latestDate;
+}
+
+/**
+ * Get the current commit SHA for the checked-out repository.
+ */
+function getCurrentCommitSha() {
+  return execSync("git --no-pager rev-parse HEAD", {
+    cwd: ROOT_FOLDER,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+  }).trim();
 }
 
 /**
@@ -120,130 +237,6 @@ function generateAgentsData(gitDates) {
     filters: {
       models: ["(none)", ...Array.from(allModels).sort()],
       tools: Array.from(allTools).sort(),
-    },
-  };
-}
-
-/**
- * Generate hooks metadata
- */
-/**
- * Generate hooks metadata (similar to skills - folder-based)
- */
-function generateHooksData(gitDates) {
-  const hooks = [];
-
-  // Check if hooks directory exists
-  if (!fs.existsSync(HOOKS_DIR)) {
-    return {
-      items: hooks,
-      filters: {
-        hooks: [],
-        tags: [],
-      },
-    };
-  }
-
-  // Get all hook folders (directories)
-  const hookFolders = fs.readdirSync(HOOKS_DIR).filter((file) => {
-    const filePath = path.join(HOOKS_DIR, file);
-    return fs.statSync(filePath).isDirectory();
-  });
-
-  // Track all unique values for filters
-  const allHookTypes = new Set();
-  const allTags = new Set();
-
-  for (const folder of hookFolders) {
-    const hookPath = path.join(HOOKS_DIR, folder);
-    const metadata = parseHookMetadata(hookPath);
-    if (!metadata) continue;
-
-    const relativePath = path
-      .relative(ROOT_FOLDER, hookPath)
-      .replace(/\\/g, "/");
-    const readmeRelativePath = `${relativePath}/README.md`;
-
-    // Track unique values
-    (metadata.hooks || []).forEach((h) => allHookTypes.add(h));
-    (metadata.tags || []).forEach((t) => allTags.add(t));
-
-    hooks.push({
-      id: folder,
-      title: metadata.name,
-      description: metadata.description,
-      hooks: metadata.hooks || [],
-      tags: metadata.tags || [],
-      assets: metadata.assets || [],
-      path: relativePath,
-      readmeFile: readmeRelativePath,
-      lastUpdated: gitDates.get(readmeRelativePath) || null,
-    });
-  }
-
-  // Sort and return with filter metadata
-  const sortedHooks = hooks.sort((a, b) => a.title.localeCompare(b.title));
-
-  return {
-    items: sortedHooks,
-    filters: {
-      hooks: Array.from(allHookTypes).sort(),
-      tags: Array.from(allTags).sort(),
-    },
-  };
-}
-
-/**
- * Generate workflows metadata (flat .md files)
- */
-function generateWorkflowsData(gitDates) {
-  const workflows = [];
-
-  if (!fs.existsSync(WORKFLOWS_DIR)) {
-    return {
-      items: workflows,
-      filters: {
-        triggers: [],
-      },
-    };
-  }
-
-  const workflowFiles = fs.readdirSync(WORKFLOWS_DIR).filter((file) => {
-    return file.endsWith(".md") && file !== ".gitkeep";
-  });
-
-  const allTriggers = new Set();
-
-  for (const file of workflowFiles) {
-    const filePath = path.join(WORKFLOWS_DIR, file);
-    const metadata = parseWorkflowMetadata(filePath);
-    if (!metadata) continue;
-
-    const relativePath = path
-      .relative(ROOT_FOLDER, filePath)
-      .replace(/\\/g, "/");
-
-    (metadata.triggers || []).forEach((t) => allTriggers.add(t));
-
-    const id = path.basename(file, ".md");
-    workflows.push({
-      id,
-      title: metadata.name,
-      description: metadata.description,
-      triggers: metadata.triggers || [],
-      path: relativePath,
-      lastUpdated: gitDates.get(relativePath) || null,
-    });
-  }
-
-  const sortedWorkflows = workflows.sort((a, b) =>
-    a.title.localeCompare(b.title)
-  );
-
-  return {
-    items: sortedWorkflows,
-    filters: {
-      triggers: Array.from(allTriggers).sort(),
     },
   };
 }
@@ -355,64 +348,18 @@ function generateInstructionsData(gitDates) {
 }
 
 /**
- * Categorize a skill based on its name and description
- */
-function categorizeSkill(name, description) {
-  const text = `${name} ${description}`.toLowerCase();
-
-  if (text.includes("azure") || text.includes("appinsights")) return "Azure";
-  if (
-    text.includes("github") ||
-    text.includes("gh-cli") ||
-    text.includes("git-commit") ||
-    text.includes("git ")
-  )
-    return "Git & GitHub";
-  if (text.includes("vscode") || text.includes("vs code")) return "VS Code";
-  if (
-    text.includes("test") ||
-    text.includes("qa") ||
-    text.includes("playwright")
-  )
-    return "Testing";
-  if (
-    text.includes("microsoft") ||
-    text.includes("m365") ||
-    text.includes("workiq")
-  )
-    return "Microsoft";
-  if (text.includes("cli") || text.includes("command")) return "CLI Tools";
-  if (
-    text.includes("diagram") ||
-    text.includes("plantuml") ||
-    text.includes("visual")
-  )
-    return "Diagrams";
-  if (
-    text.includes("nuget") ||
-    text.includes("dotnet") ||
-    text.includes(".net")
-  )
-    return ".NET";
-
-  return "Other";
-}
-
-/**
  * Generate skills metadata
  */
 function generateSkillsData(gitDates) {
   const skills = [];
 
   if (!fs.existsSync(SKILLS_DIR)) {
-    return { items: [], filters: { categories: [], hasAssets: ["Yes", "No"] } };
+    return { items: [], filters: { hasAssets: ["Yes", "No"] } };
   }
 
   const folders = fs
     .readdirSync(SKILLS_DIR)
     .filter((f) => fs.statSync(path.join(SKILLS_DIR, f)).isDirectory());
-
-  const allCategories = new Set();
 
   for (const folder of folders) {
     const skillPath = path.join(SKILLS_DIR, folder);
@@ -422,31 +369,39 @@ function generateSkillsData(gitDates) {
       const relativePath = path
         .relative(ROOT_FOLDER, skillPath)
         .replace(/\\/g, "/");
-      const category = categorizeSkill(metadata.name, metadata.description);
-      allCategories.add(category);
 
       // Get all files in the skill folder recursively
-      const files = getSkillFiles(skillPath, relativePath);
+      const files = getFolderFiles(skillPath, relativePath);
 
       // Get last updated from SKILL.md file
       const skillFilePath = `${relativePath}/SKILL.md`;
+      const title = metadata.name
+        .split("-")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+      const searchText = [
+        title,
+        metadata.description,
+        folder,
+        metadata.name,
+        relativePath,
+      ]
+        .join(" ")
+        .toLowerCase();
 
       skills.push({
         id: folder,
         name: metadata.name,
-        title: metadata.name
-          .split("-")
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" "),
+        title,
         description: metadata.description,
         assets: metadata.assets,
         hasAssets: metadata.assets.length > 0,
         assetCount: metadata.assets.length,
-        category: category,
         path: relativePath,
         skillFile: skillFilePath,
         files: files,
         lastUpdated: gitDates.get(skillFilePath) || null,
+        searchText,
       });
     }
   }
@@ -456,16 +411,15 @@ function generateSkillsData(gitDates) {
   return {
     items: sortedSkills,
     filters: {
-      categories: Array.from(allCategories).sort(),
       hasAssets: ["Yes", "No"],
     },
   };
 }
 
 /**
- * Get all files in a skill folder recursively
+ * Get all files in a resource folder (skill or hook) recursively.
  */
-function getSkillFiles(skillPath, relativePath) {
+function getFolderFiles(skillPath, relativePath) {
   const files = [];
 
   function walkDir(dir, relDir) {
@@ -493,11 +447,103 @@ function getSkillFiles(skillPath, relativePath) {
 }
 
 /**
+ * Get all agent markdown files from a folder
+ */
+function getAgentFiles(agentDir, pluginRootPath) {
+  if (!fs.existsSync(agentDir)) return [];
+
+  return fs
+    .readdirSync(agentDir)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => ({
+      kind: "agent",
+      path: `${pluginRootPath}/agents/${f}`,
+    }));
+}
+
+/**
+ * Build a lookup index of resource id -> { title, url } for the kinds that have
+ * dedicated detail pages, so plugin items can deep-link to them.
+ */
+function buildResourceIndex({ agents, skills, instructions, extensions }) {
+  const toMap = (items, urlPrefix) => {
+    const map = new Map();
+    for (const item of items || []) {
+      if (!item?.id) continue;
+      map.set(item.id, {
+        title: item.title || item.id,
+        url: `/${urlPrefix}/${item.id}/`,
+      });
+    }
+    return map;
+  };
+  const extensionMap = new Map();
+  for (const item of extensions || []) {
+    if (!item?.id) continue;
+
+    const entry = {
+      title: item.name || item.title || item.id,
+      url: `/extension/${item.id}/`,
+    };
+    const keys = [
+      item.id,
+      item.extensionId,
+      item.path ? pluginItemCandidateId(item.path) : null,
+    ].filter(Boolean);
+
+    for (const key of keys) {
+      if (!extensionMap.has(key)) {
+        extensionMap.set(key, entry);
+      }
+    }
+  }
+
+  return {
+    agent: toMap(agents, "agent"),
+    skill: toMap(skills, "skill"),
+    instruction: toMap(instructions, "instruction"),
+    extension: extensionMap,
+  };
+}
+
+/**
+ * Derive the candidate resource id for a plugin item path (basename without a
+ * known resource extension), e.g. "./skills/foo/" -> "foo",
+ * "plugins/x/agents/bar.md" -> "bar".
+ */
+function pluginItemCandidateId(itemPath) {
+  const trimmed = String(itemPath || "")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+$/, "");
+  const base = trimmed.split("/").pop() || "";
+  return base
+    .replace(/\.agent\.md$/i, "")
+    .replace(/\.prompt\.md$/i, "")
+    .replace(/\.instructions\.md$/i, "")
+    .replace(/\.md$/i, "");
+}
+
+/**
+ * Enrich a plugin item ({ kind, path }) with a display title and, when the item
+ * resolves to a known resource with a detail page, a detailUrl.
+ */
+function resolvePluginItem(item, resourceIndex) {
+  const candidateId = pluginItemCandidateId(item.path);
+  const lookup = resourceIndex?.[item.kind];
+  const match = lookup?.get(candidateId);
+
+  return {
+    ...item,
+    title: match?.title || item.title || candidateId || item.path,
+    detailUrl: match?.url || null,
+  };
+}
+
+/**
  * Generate plugins metadata
  */
-function generatePluginsData(gitDates) {
+function generatePluginsData(gitDates, resourceIndex = {}) {
   const plugins = [];
-
   if (!fs.existsSync(PLUGINS_DIR)) {
     return { items: [], filters: { tags: [] } };
   }
@@ -508,36 +554,89 @@ function generatePluginsData(gitDates) {
 
   for (const dir of pluginDirs) {
     const pluginDir = path.join(PLUGINS_DIR, dir.name);
-    const jsonPath = path.join(pluginDir, ".github/plugin", "plugin.json");
+    const jsonPath = path.join(pluginDir, "plugin.json");
 
     if (!fs.existsSync(jsonPath)) continue;
 
     try {
       const data = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
       const relPath = `plugins/${dir.name}`;
-      const dates = gitDates[relPath] || gitDates[`${relPath}/`] || {};
+      const composition = data.extensions?.["com.github.awesome-copilot"] ?? {};
+      const extensionRefs = composition.extensions
+        ?.map((entry) => entry.replace(/^\.\/extensions\//, "").replace(/\/$/, ""))
+        .filter(Boolean) ?? [];
+      if (fs.existsSync(path.join(EXTENSIONS_DIR, dir.name, "extension.mjs")) && !extensionRefs.includes(dir.name)) {
+        extensionRefs.push(dir.name);
+      }
+      const extensionItems = extensionRefs
+        .filter((entry) => typeof entry === "string")
+        .map((entry) => ({
+          kind: "extension",
+          path: `extensions/${entry}`,
+        }));
 
-      // Build items list from spec fields (agents, commands, skills)
+      const agentItems = (composition.agents || []).flatMap((agent) => {
+        const agentPath = agent.replace("./", "");
+        const fullPath = path.join(pluginDir, agentPath);
+
+        if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
+          return getAgentFiles(fullPath, relPath);
+        }
+
+        return [
+          {
+            kind: "agent",
+            path: `${relPath}/${agentPath}`,
+          },
+        ];
+      });
+
+      // Discover MCP servers from the spec-mandated mcp.json at the plugin root.
+      const mcpItems = [];
+      const mcpJsonPath = path.join(pluginDir, "mcp.json");
+      if (fs.existsSync(mcpJsonPath) && fs.statSync(mcpJsonPath).isFile()) {
+        try {
+          const mcpJson = JSON.parse(fs.readFileSync(mcpJsonPath, "utf-8"));
+          const mcpServers = mcpJson.mcpServers;
+          if (mcpServers && typeof mcpServers === "object") {
+            for (const serverName of Object.keys(mcpServers)) {
+              mcpItems.push({ kind: "mcp", path: `${relPath}/mcp.json`, title: serverName });
+            }
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      // Build items list from supported composition fields.
       const items = [
-        ...(data.agents || []).map((p) => ({ kind: "agent", path: p })),
-        ...(data.commands || []).map((p) => ({ kind: "prompt", path: p })),
-        ...(data.skills || []).map((p) => ({ kind: "skill", path: p })),
-      ];
+        ...agentItems,
+        ...(composition.skills || []).map((p) => ({ kind: "skill", path: p })),
+        ...extensionItems,
+        ...mcpItems,
+      ].map((item) => resolvePluginItem(item, resourceIndex));
 
       const tags = data.keywords || data.tags || [];
+      const pluginName = data.name || dir.name;
+
+      const readmePath = path.join(pluginDir, "README.md");
+      const readmeFile = fs.existsSync(readmePath)
+        ? `${relPath}/README.md`
+        : null;
 
       plugins.push({
         id: dir.name,
-        name: data.name || dir.name,
+        name: pluginName,
         description: data.description || "",
         path: relPath,
+        readmeFile,
+        version: normalizeText(data.version, null),
         tags: tags,
         itemCount: items.length,
         items: items,
-        lastUpdated: dates.lastModified || null,
-        searchText: `${data.name || dir.name} ${
-          data.description || ""
-        } ${tags.join(" ")}`.toLowerCase(),
+        lastUpdated: getDirectoryLastUpdated(gitDates, relPath),
+        searchText: `${pluginName} ${data.description || ""
+          } ${tags.join(" ")}`.toLowerCase(),
       });
     } catch (e) {
       console.warn(`Failed to parse plugin: ${dir.name}`, e.message);
@@ -576,6 +675,7 @@ function generatePluginsData(gitDates) {
             name: ext.name,
             description: ext.description || "",
             path: `plugins/${ext.name}`,
+            version: normalizeText(ext.version, null),
             tags: tags,
             itemCount: 0,
             items: [],
@@ -613,60 +713,750 @@ function generatePluginsData(gitDates) {
 }
 
 /**
- * Generate tools metadata from website/data/tools.yml
+ * Generate canvas extensions metadata
  */
-function generateToolsData() {
-  const toolsFile = path.join(WEBSITE_SOURCE_DATA_DIR, "tools.yml");
+function getImageMimeType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  const mimeByExtension = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+  };
+  return mimeByExtension[extension] || "application/octet-stream";
+}
 
-  if (!fs.existsSync(toolsFile)) {
-    console.warn("No tools.yml file found at", toolsFile);
-    return { items: [], filters: { categories: [], tags: [] } };
+function resolveImageUrl(value, ref) {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized;
+  }
+  const repoPath = normalized.replace(/\\/g, "/").replace(/^\/+/, "");
+  return buildRepoImageUrl(repoPath, ref);
+}
+
+function getImageAssetFiles(extensionDir) {
+  const assetDir = path.join(extensionDir, "assets");
+
+  if (!fs.existsSync(assetDir)) {
+    return [];
   }
 
-  const data = parseYamlFile(toolsFile);
+  const imageExtensions = new Set([
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+  ]);
 
-  if (!data || !data.tools) {
-    return { items: [], filters: { categories: [], tags: [] } };
+  return fs
+    .readdirSync(assetDir)
+    .filter((file) => imageExtensions.has(path.extname(file).toLowerCase()))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function pickAssetFile(files, preferredNames) {
+  const preferredLookup = new Set(preferredNames.map((name) => name.toLowerCase()));
+  for (const file of files) {
+    if (preferredLookup.has(file.toLowerCase())) {
+      return file;
+    }
+  }
+  return files[0] || null;
+}
+
+function getExtensionAssetInfo(extensionDir, relPath, ref) {
+  const files = getImageAssetFiles(extensionDir);
+
+  if (files.length === 0) {
+    return null;
   }
 
-  const allCategories = new Set();
-  const allTags = new Set();
+  const iconAsset = pickAssetFile(files, [
+    "icon.png",
+    "icon.jpg",
+    "icon.jpeg",
+    "icon.webp",
+    "icon.gif",
+    "preview.png",
+    "preview.jpg",
+    "preview.jpeg",
+    "preview.webp",
+    "preview.gif",
+    "screenshot.png",
+    "screenshot.jpg",
+    "screenshot.jpeg",
+    "screenshot.webp",
+    "screenshot.gif",
+    "image.png",
+    "image.jpg",
+    "image.jpeg",
+    "image.webp",
+    "image.gif",
+  ]);
+  const galleryAsset = pickAssetFile(files, [
+    "gallery.png",
+    "gallery.jpg",
+    "gallery.jpeg",
+    "gallery.webp",
+    "gallery.gif",
+    "preview.png",
+    "preview.jpg",
+    "preview.jpeg",
+    "preview.webp",
+    "preview.gif",
+    "screenshot.png",
+    "screenshot.jpg",
+    "screenshot.jpeg",
+    "screenshot.webp",
+    "screenshot.gif",
+    "image.png",
+    "image.jpg",
+    "image.jpeg",
+    "image.webp",
+    "image.gif",
+  ]);
 
-  const tools = data.tools.map((tool) => {
-    const category = tool.category || "Other";
-    allCategories.add(category);
-
-    const tags = tool.tags || [];
-    tags.forEach((t) => allTags.add(t));
-
-    return {
-      id: tool.id,
-      name: tool.name,
-      description: tool.description || "",
-      category: category,
-      featured: tool.featured || false,
-      requirements: tool.requirements || [],
-      features: tool.features || [],
-      links: tool.links || {},
-      configuration: tool.configuration || null,
-      tags: tags,
-    };
-  });
-
-  // Sort with featured first, then alphabetically
-  const sortedTools = tools.sort((a, b) => {
-    if (a.featured && !b.featured) return -1;
-    if (!a.featured && b.featured) return 1;
-    return a.name.localeCompare(b.name);
-  });
+  const iconFile = iconAsset || galleryAsset;
+  const galleryFile = galleryAsset || iconAsset;
+  const iconPath = iconFile ? `${relPath}/assets/${iconFile}` : null;
+  const galleryPath = galleryFile ? `${relPath}/assets/${galleryFile}` : null;
 
   return {
-    items: sortedTools,
+    screenshots: {
+      icon: iconPath
+        ? {
+          path: iconPath,
+          type: getImageMimeType(iconPath),
+        }
+        : null,
+      gallery: galleryPath
+        ? {
+          path: galleryPath,
+          type: getImageMimeType(galleryPath),
+        }
+        : null,
+    },
+    assetPath: iconPath,
+    imageUrl: iconPath ? buildRepoImageUrl(iconPath, ref) : null,
+  };
+}
+
+function buildRepoImageUrl(assetPath, ref) {
+  const encodedAssetPath = assetPath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `https://raw.githubusercontent.com/github/awesome-copilot/${ref}/${encodedAssetPath}`;
+}
+
+function extractCanvasMetadataFromSource(source) {
+  const constants = new Map();
+  const constantPattern =
+    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`([^`$]*)`)\s*;/g;
+  let constantMatch = constantPattern.exec(source);
+  while (constantMatch) {
+    const key = constantMatch[1];
+    const value = constantMatch[2] ?? constantMatch[3] ?? constantMatch[4] ?? "";
+    constants.set(key, value.replace(/\\n/g, "\n").trim());
+    constantMatch = constantPattern.exec(source);
+  }
+
+  function resolveExpression(expr) {
+    const trimmed = normalizeText(expr);
+    if (!trimmed) return null;
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+      return trimmed
+        .slice(1, -1)
+        .replace(/\\n/g, "\n")
+        .replace(/\\"/g, '"')
+        .replace(/\\'/g, "'");
+    }
+    if (trimmed.startsWith("`") && trimmed.endsWith("`") && !trimmed.includes("${")) {
+      return trimmed.slice(1, -1);
+    }
+    return constants.get(trimmed) || null;
+  }
+
+  function findMatchingBrace(startIndex) {
+    let depth = 0;
+    let inSingle = false;
+    let inDouble = false;
+    let inTemplate = false;
+    let escaped = false;
+    for (let i = startIndex; i < source.length; i++) {
+      const char = source[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (!inDouble && !inTemplate && char === "'" && !inSingle) {
+        inSingle = true;
+        continue;
+      }
+      if (inSingle && char === "'") {
+        inSingle = false;
+        continue;
+      }
+      if (!inSingle && !inTemplate && char === '"' && !inDouble) {
+        inDouble = true;
+        continue;
+      }
+      if (inDouble && char === '"') {
+        inDouble = false;
+        continue;
+      }
+      if (!inSingle && !inDouble && char === "`" && !inTemplate) {
+        inTemplate = true;
+        continue;
+      }
+      if (inTemplate && char === "`") {
+        inTemplate = false;
+        continue;
+      }
+      if (inSingle || inDouble || inTemplate) {
+        continue;
+      }
+      if (char === "{") depth++;
+      if (char === "}") {
+        depth--;
+        if (depth === 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  function readProp(head, key) {
+    const pattern = new RegExp(`\\b${key}\\s*:\\s*([^,\\n]+)`);
+    const match = pattern.exec(head);
+    return resolveExpression(match?.[1]);
+  }
+
+  const canvases = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const createCanvasIndex = source.indexOf("createCanvas(", cursor);
+    if (createCanvasIndex === -1) {
+      break;
+    }
+    const objectStart = source.indexOf("{", createCanvasIndex);
+    if (objectStart === -1) {
+      break;
+    }
+    const objectEnd = findMatchingBrace(objectStart);
+    if (objectEnd === -1) {
+      break;
+    }
+    const objectContent = source.slice(objectStart + 1, objectEnd);
+    const header = objectContent.slice(0, 1400);
+    const id = readProp(header, "id");
+    const displayName = readProp(header, "displayName");
+    const description = readProp(header, "description");
+    if (id || displayName || description) {
+      canvases.push({
+        id: id || null,
+        displayName: displayName || null,
+        description: description || null,
+      });
+    }
+    cursor = objectEnd + 1;
+  }
+
+  return canvases;
+}
+
+function getExtensionCanvasFiles(extensionDir) {
+  const queue = [extensionDir];
+  const files = [];
+  while (queue.length > 0) {
+    const currentDir = queue.shift();
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const absolutePath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        queue.push(absolutePath);
+      } else if (entry.isFile() && entry.name.endsWith(".mjs")) {
+        files.push(absolutePath);
+      }
+    }
+  }
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeExternalScreenshotRole(value, ref) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const type = getImageMimeType(value);
+    return {
+      path: value.replace(/\\/g, "/"),
+      type,
+      imageUrl: resolveImageUrl(value, ref),
+    };
+  }
+  const pathValue = normalizeText(value.path);
+  const urlValue = normalizeText(value.url);
+  if (!pathValue && !urlValue) return null;
+  const imagePath = pathValue ? pathValue.replace(/\\/g, "/") : null;
+  const type = normalizeText(value.type) || getImageMimeType(imagePath || urlValue);
+  const imageUrl = resolveImageUrl(urlValue || imagePath, ref);
+  return {
+    path: imagePath,
+    type,
+    imageUrl,
+  };
+}
+
+function buildExternalRepoImageUrl(repo, locator, assetPath) {
+  if (!repo || !locator || !assetPath) {
+    return null;
+  }
+
+  const encodedLocator = locator
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const encodedPath = assetPath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `https://raw.githubusercontent.com/${repo}/${encodedLocator}/${encodedPath}`;
+}
+
+function buildExternalRepoTreeUrl(repo, locator, pluginRoot) {
+  if (!repo) {
+    return null;
+  }
+
+  if (locator) {
+    const treePath = normalizeRepoRelativePath(pluginRoot);
+    const encodedLocator = locator
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    const encodedTreePath = treePath
+      ? treePath
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/")
+      : null;
+    const suffix = encodedTreePath ? `/${encodedTreePath}` : "";
+    return `https://github.com/${repo}/tree/${encodedLocator}${suffix}`;
+  }
+
+  return `https://github.com/${repo}`;
+}
+
+function hasCanvasKeyword(plugin) {
+  return normalizeExternalKeywords(plugin).some(
+    (keyword) => normalizeText(keyword).toLowerCase() === EXTERNAL_CANVAS_KEYWORD
+  );
+}
+
+function normalizeExternalKeywords(plugin) {
+  const source = Array.isArray(plugin?.keywords)
+    ? plugin.keywords
+    : Array.isArray(plugin?.tags)
+      ? plugin.tags
+      : [];
+
+  return [...new Set(
+    source
+      .filter((keyword) => typeof keyword === "string")
+      .map((keyword) => keyword.trim())
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeExtensionScreenshotRole(value, relPath, ref) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    if (/^https?:\/\//i.test(value)) {
+      return {
+        path: null,
+        type: getImageMimeType(value),
+        imageUrl: value,
+      };
+    }
+
+    const normalized = value.replace(/\\/g, "/").replace(/^\.\/+/, "");
+    const repoPath = normalized.startsWith(`${relPath}/`) ? normalized : `${relPath}/${normalized}`;
+    return {
+      path: repoPath,
+      type: getImageMimeType(repoPath),
+      imageUrl: buildRepoImageUrl(repoPath, ref),
+    };
+  }
+
+  const pathValue = normalizeText(value.path);
+  const urlValue = normalizeText(value.url);
+  if (!pathValue && !urlValue) return null;
+  const pathEntry = pathValue
+    ? normalizeExtensionScreenshotRole(pathValue, relPath, ref)
+    : null;
+  const urlEntry = urlValue
+    ? normalizeExtensionScreenshotRole(urlValue, relPath, ref)
+    : null;
+
+  return {
+    path: pathEntry?.path || null,
+    type: normalizeText(value.type) || pathEntry?.type || urlEntry?.type || null,
+    imageUrl: urlEntry?.imageUrl || pathEntry?.imageUrl || null,
+  };
+}
+
+function resolveExtensionScreenshots(pluginJson, extensionDir, relPath, ref) {
+  const inferredAssets = getExtensionAssetInfo(extensionDir, relPath, ref);
+  const inferredIcon = inferredAssets?.screenshots?.icon
+    ? {
+      path: inferredAssets.screenshots.icon.path,
+      type: inferredAssets.screenshots.icon.type,
+      imageUrl: inferredAssets.screenshots.icon.path
+        ? buildRepoImageUrl(inferredAssets.screenshots.icon.path, ref)
+        : null,
+    }
+    : null;
+  const inferredGallery = inferredAssets?.screenshots?.gallery
+    ? {
+      path: inferredAssets.screenshots.gallery.path,
+      type: inferredAssets.screenshots.gallery.type,
+      imageUrl: inferredAssets.screenshots.gallery.path
+        ? buildRepoImageUrl(inferredAssets.screenshots.gallery.path, ref)
+        : null,
+    }
+    : null;
+
+  const copilotNs = pluginJson?.extensions?.["com.github.copilot"];
+  const logoEntry = normalizeExtensionScreenshotRole(
+    copilotNs?.logo ?? pluginJson?.logo,
+    relPath, ref
+  );
+  const finalIcon = logoEntry || inferredIcon;
+  const finalGallery = logoEntry || inferredGallery || finalIcon;
+
+  return {
+    screenshots: {
+      icon: finalIcon
+        ? {
+          path: finalIcon.path,
+          type: finalIcon.type,
+        }
+        : null,
+      gallery: finalGallery
+        ? {
+          path: finalGallery.path,
+          type: finalGallery.type,
+        }
+        : null,
+    },
+    assetPath: finalIcon?.path || inferredAssets?.assetPath || null,
+    imageUrl: finalIcon?.imageUrl || inferredAssets?.imageUrl || null,
+  };
+}
+
+function generateCanvasManifest(gitDates, commitSha) {
+  const items = [];
+
+  if (!fs.existsSync(EXTENSIONS_DIR)) {
+    return { items: [], filters: { keywords: [] } };
+  }
+
+  const extensionPluginOwners = readExtensionPluginOwners(PLUGINS_DIR);
+  const extensionDirs = fs
+    .readdirSync(EXTENSIONS_DIR, { withFileTypes: true })
+    .filter((entry) => {
+      if (!entry.isDirectory()) return false;
+      return hasExtensionEntryPoint(path.join(EXTENSIONS_DIR, entry.name), entry.name);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const dir of extensionDirs) {
+    const relPath = `extensions/${dir.name}`;
+    const extensionDir = path.join(EXTENSIONS_DIR, dir.name);
+    const packageJsonPath = path.join(extensionDir, "package.json");
+    const packageJson = fs.existsSync(packageJsonPath)
+      ? JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"))
+      : {};
+    const pluginJsonPath = path.join(PLUGINS_DIR, dir.name, "plugin.json");
+    const pluginJson = fs.existsSync(pluginJsonPath)
+      ? JSON.parse(fs.readFileSync(pluginJsonPath, "utf-8"))
+      : {};
+    const keywordsSource = Array.isArray(pluginJson.keywords)
+      ? pluginJson.keywords
+      : Array.isArray(packageJson.keywords)
+        ? packageJson.keywords
+        : [];
+    const keywords = [...new Set(
+      keywordsSource
+        .filter((keyword) => typeof keyword === "string")
+        .map((keyword) => keyword.trim())
+        .filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b));
+    const extensionDescription = normalizeText(
+      pluginJson.description,
+      normalizeText(packageJson.description, "Canvas extension")
+    );
+    const extensionName = normalizeText(pluginJson.name, normalizeText(packageJson.name, dir.name));
+    const pluginName = resolveExtensionPluginName(dir.name, extensionPluginOwners);
+    const extensionVersion = normalizeText(pluginJson.version, normalizeText(packageJson.version, "1.0.0"));
+    const readmeFile = fs.existsSync(path.join(extensionDir, "README.md"))
+      ? `${relPath}/README.md`
+      : null;
+    const screenshots = resolveExtensionScreenshots(pluginJson, extensionDir, relPath, commitSha);
+    const canvasFiles = getExtensionCanvasFiles(extensionDir);
+    const canvases = [];
+    for (const canvasFile of canvasFiles) {
+      const source = fs.readFileSync(canvasFile, "utf-8");
+      canvases.push(...extractCanvasMetadataFromSource(source));
+    }
+    const canvasEntries = canvases.length > 0
+      ? canvases
+      : [{ id: dir.name, displayName: formatDisplayName(dir.name), description: extensionDescription }];
+    const installUrl = `https://github.com/github/awesome-copilot/tree/main/${relPath.replace(
+      /\\/g,
+      "/"
+    )}`;
+    const installCommand = `copilot plugin install ${pluginName}@awesome-copilot`;
+
+    for (const canvas of canvasEntries) {
+      const canvasId = normalizeText(canvas.id, dir.name);
+      const canvasName = normalizeText(canvas.displayName, formatDisplayName(canvasId));
+      const canvasDescription = normalizeText(extensionDescription, canvas.description);
+      items.push({
+        id: canvasId,
+        canvasId,
+        extensionId: dir.name,
+        extensionName,
+        pluginName,
+        name: canvasName,
+        version: extensionVersion,
+        readmeFile,
+        description: canvasDescription,
+        path: relPath,
+        ref: commitSha,
+        lastUpdated: getDirectoryLastUpdated(gitDates, relPath),
+        screenshots: screenshots?.screenshots || { icon: null, gallery: null },
+        imageUrl: screenshots?.imageUrl || null,
+        assetPath: screenshots?.assetPath || null,
+        installUrl,
+        installCommand,
+        sourceUrl: null,
+        external: false,
+        author: normalizeAuthor(pluginJson.author),
+        keywords,
+      });
+    }
+  }
+
+  const externalJsonPath = path.join(EXTENSIONS_DIR, "external.json");
+  if (fs.existsSync(externalJsonPath)) {
+    try {
+      const externalExtensions = JSON.parse(
+        fs.readFileSync(externalJsonPath, "utf-8")
+      );
+      if (Array.isArray(externalExtensions)) {
+        for (const ext of externalExtensions) {
+          const name = normalizeText(ext?.name);
+          const installUrl = normalizeText(ext?.installUrl);
+          const sourceUrl = normalizeText(ext?.sourceUrl || installUrl);
+          if (!name || !installUrl) {
+            continue;
+          }
+
+          const id = normalizeText(ext?.id || name.toLowerCase().replace(/\s+/g, "-"));
+          const keywords = Array.isArray(ext?.keywords)
+            ? [...new Set(ext.keywords.filter((keyword) => typeof keyword === "string").map((keyword) => keyword.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+            : Array.isArray(ext?.tags)
+              ? [...new Set(ext.tags.filter((keyword) => typeof keyword === "string").map((keyword) => keyword.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+              : [];
+          const iconScreenshot =
+            normalizeExternalScreenshotRole(ext?.screenshots?.icon, commitSha) ||
+            normalizeExternalScreenshotRole(ext?.iconPath, commitSha) ||
+            normalizeExternalScreenshotRole(ext?.imagePath, commitSha) ||
+            normalizeExternalScreenshotRole(ext?.iconUrl, commitSha) ||
+            normalizeExternalScreenshotRole(ext?.imageUrl, commitSha);
+          const galleryScreenshot =
+            normalizeExternalScreenshotRole(ext?.screenshots?.gallery, commitSha) ||
+            normalizeExternalScreenshotRole(ext?.galleryPath, commitSha) ||
+            normalizeExternalScreenshotRole(ext?.galleryUrl, commitSha) ||
+            iconScreenshot;
+          const screenshots = {
+            icon: iconScreenshot
+              ? {
+                path: iconScreenshot.path,
+                type: iconScreenshot.type,
+              }
+              : null,
+            gallery: galleryScreenshot
+              ? {
+                path: galleryScreenshot.path,
+                type: galleryScreenshot.type,
+              }
+              : null,
+          };
+          const imageUrl = iconScreenshot?.imageUrl || null;
+          const assetPath = iconScreenshot?.path || null;
+          const canvasId = normalizeText(ext?.canvasId, id);
+
+          items.push({
+            id,
+            canvasId,
+            extensionId: id,
+            extensionName: name,
+            pluginName: null,
+            name,
+            version: normalizeText(ext?.version, "1.0.0"),
+            readmeFile: null,
+            description: normalizeText(ext?.description, "External canvas extension"),
+            path: null,
+            ref: null,
+            lastUpdated: null,
+            screenshots,
+            imageUrl,
+            assetPath,
+            installUrl,
+            installCommand: null,
+            sourceUrl: sourceUrl || null,
+            external: true,
+            author: normalizeAuthor(ext?.author),
+            keywords,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn(`Failed to parse external extensions: ${e.message}`);
+    }
+  }
+
+  const seenExtensionIds = new Set(items.map((item) => String(item.id).toLowerCase()));
+  const {
+    plugins: externalPlugins,
+    errors: externalPluginErrors,
+    warnings: externalPluginWarnings,
+  } = readExternalPlugins({ policy: "marketplace" });
+  externalPluginWarnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (externalPluginErrors.length > 0) {
+    externalPluginErrors.forEach((error) => console.error(`Error: ${error}`));
+    throw new Error("External plugin validation failed");
+  }
+
+  for (const ext of externalPlugins) {
+    if (!hasCanvasKeyword(ext)) {
+      continue;
+    }
+
+    const name = normalizeText(ext?.name);
+    if (!name) {
+      continue;
+    }
+    const displayName = formatDisplayName(name);
+
+    const id = normalizeText(ext?.name).toLowerCase().replace(/\s+/g, "-");
+    if (seenExtensionIds.has(id)) {
+      continue;
+    }
+
+    const source = ext?.source;
+    if (source?.source !== "github" || !normalizeText(source?.repo)) {
+      console.warn(`Warning: skipping external canvas "${name}" due to missing GitHub source`);
+      continue;
+    }
+
+    const locator = normalizeText(source.sha) || normalizeText(source.ref);
+    if (!locator) {
+      console.warn(`Warning: skipping external canvas "${name}" because source.sha or source.ref is required`);
+      continue;
+    }
+
+    const pluginRoot = normalizeRepoRelativePath(source.path);
+    const previewPath = joinRepoPath(pluginRoot, EXTERNAL_CANVAS_PREVIEW_PATH);
+    const imageUrl = buildExternalRepoImageUrl(source.repo, locator, previewPath);
+    const sourceUrl = buildExternalRepoTreeUrl(source.repo, locator, pluginRoot);
+    const externalSource = normalizeText(source.repo);
+    const keywords = normalizeExternalKeywords(ext);
+
+    items.push({
+      id,
+      canvasId: id,
+      extensionId: id,
+      extensionName: name,
+      pluginName: name,
+      name: displayName,
+      version: normalizeText(ext?.version, "1.0.0"),
+      readmeFile: null,
+      description: normalizeText(ext?.description, "External canvas extension"),
+      path: null,
+      ref: null,
+      lastUpdated: null,
+      screenshots: {
+        icon: imageUrl
+          ? {
+            path: imageUrl,
+            type: getImageMimeType(EXTERNAL_CANVAS_PREVIEW_PATH),
+          }
+          : null,
+        gallery: imageUrl
+          ? {
+            path: imageUrl,
+            type: getImageMimeType(EXTERNAL_CANVAS_PREVIEW_PATH),
+          }
+          : null,
+      },
+      imageUrl,
+      assetPath: null,
+      installUrl: null,
+      // Registered in plugins/external.json, so it is installable from the
+      // awesome-copilot marketplace by plugin name even though it is hosted
+      // externally.
+      installCommand: `copilot plugin install ${name}@awesome-copilot`,
+      sourceUrl,
+      externalSource,
+      external: true,
+      author: normalizeAuthor(ext?.author),
+      keywords,
+    });
+    seenExtensionIds.add(id);
+  }
+
+  const sortedItems = items.sort((a, b) => a.name.localeCompare(b.name));
+  const keywordFilters = [...new Set(sortedItems.flatMap((item) => item.keywords || []))]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
+  return {
+    items: sortedItems,
     filters: {
-      categories: Array.from(allCategories).sort(),
-      tags: Array.from(allTags).sort(),
+      keywords: keywordFilters,
     },
   };
+}
+
+function generateExtensionsData(extensionManifestData) {
+  if (!extensionManifestData || !Array.isArray(extensionManifestData.items)) {
+    return { items: [], filters: { keywords: [] } };
+  }
+
+  const items = extensionManifestData.items.map((item) => ({
+    ...item,
+    keywords: Array.isArray(item.keywords) ? item.keywords : [],
+    screenshots: item.screenshots || { icon: null, gallery: null },
+  }));
+  const filters = {
+    keywords: [...new Set(items.flatMap((item) => item.keywords))]
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b)),
+  };
+
+  return { items, filters };
 }
 
 /**
@@ -675,10 +1465,9 @@ function generateToolsData() {
 function generateSearchIndex(
   agents,
   instructions,
-  hooks,
-  workflows,
   skills,
-  plugins
+  plugins,
+  extensions
 ) {
   const index = [];
 
@@ -704,37 +1493,8 @@ function generateSearchIndex(
       description: instruction.description,
       path: instruction.path,
       lastUpdated: instruction.lastUpdated,
-      searchText: `${instruction.title} ${instruction.description} ${
-        instruction.applyTo || ""
-      }`.toLowerCase(),
-    });
-  }
-
-  for (const hook of hooks) {
-    index.push({
-      type: "hook",
-      id: hook.id,
-      title: hook.title,
-      description: hook.description,
-      path: hook.readmeFile,
-      lastUpdated: hook.lastUpdated,
-      searchText: `${hook.title} ${hook.description} ${hook.hooks.join(
-        " "
-      )} ${hook.tags.join(" ")}`.toLowerCase(),
-    });
-  }
-
-  for (const workflow of workflows) {
-    index.push({
-      type: "workflow",
-      id: workflow.id,
-      title: workflow.title,
-      description: workflow.description,
-      path: workflow.path,
-      lastUpdated: workflow.lastUpdated,
-      searchText: `${workflow.title} ${
-        workflow.description
-      } ${workflow.triggers.join(" ")}`.toLowerCase(),
+      searchText: `${instruction.title} ${instruction.description} ${instruction.applyTo || ""
+        }`.toLowerCase(),
     });
   }
 
@@ -746,7 +1506,7 @@ function generateSearchIndex(
       description: skill.description,
       path: skill.skillFile,
       lastUpdated: skill.lastUpdated,
-      searchText: `${skill.title} ${skill.description}`.toLowerCase(),
+      searchText: skill.searchText,
     });
   }
 
@@ -760,6 +1520,20 @@ function generateSearchIndex(
       tags: plugin.tags,
       lastUpdated: plugin.lastUpdated,
       searchText: plugin.searchText,
+    });
+  }
+
+  for (const extension of extensions) {
+    index.push({
+      type: "extension",
+      id: extension.id,
+      title: extension.name || extension.title || extension.id,
+      description: extension.description || "",
+      path: extension.path,
+      lastUpdated: extension.lastUpdated,
+      searchText:
+        extension.searchText ||
+        `${extension.name || extension.title || extension.id} ${extension.description || ""}`.toLowerCase(),
     });
   }
 
@@ -904,28 +1678,24 @@ async function main() {
   // Load git dates for all resource files (single efficient git command)
   console.log("Loading git history for last updated dates...");
   const gitDates = getGitFileDates(
-    ["agents/", "instructions/", "hooks/", "workflows/", "skills/", "plugins/"],
+    [
+      "agents/",
+      "instructions/",
+      "skills/",
+      "extensions/",
+      "plugins/",
+    ],
     ROOT_FOLDER
   );
   console.log(`✓ Loaded dates for ${gitDates.size} files\n`);
 
   // Generate all data
+  const commitSha = getCurrentCommitSha();
+
   const agentsData = generateAgentsData(gitDates);
   const agents = agentsData.items;
   console.log(
     `✓ Generated ${agents.length} agents (${agentsData.filters.models.length} models, ${agentsData.filters.tools.length} tools)`
-  );
-
-  const hooksData = generateHooksData(gitDates);
-  const hooks = hooksData.items;
-  console.log(
-    `✓ Generated ${hooks.length} hooks (${hooksData.filters.hooks.length} hook types, ${hooksData.filters.tags.length} tags)`
-  );
-
-  const workflowsData = generateWorkflowsData(gitDates);
-  const workflows = workflowsData.items;
-  console.log(
-    `✓ Generated ${workflows.length} workflows (${workflowsData.filters.triggers.length} triggers)`
   );
 
   const instructionsData = generateInstructionsData(gitDates);
@@ -936,20 +1706,25 @@ async function main() {
 
   const skillsData = generateSkillsData(gitDates);
   const skills = skillsData.items;
+  console.log(`✓ Generated ${skills.length} skills`);
+
+  const extensionManifestData = generateCanvasManifest(gitDates, commitSha);
+  const extensionsData = generateExtensionsData(extensionManifestData);
+  const extensions = extensionsData.items;
   console.log(
-    `✓ Generated ${skills.length} skills (${skillsData.filters.categories.length} categories)`
+    `✓ Generated ${extensions.length} extensions (${extensionsData.filters.keywords.length} keywords)`
   );
 
-  const pluginsData = generatePluginsData(gitDates);
+  const resourceIndex = buildResourceIndex({
+    agents,
+    skills,
+    instructions,
+    extensions,
+  });
+  const pluginsData = generatePluginsData(gitDates, resourceIndex);
   const plugins = pluginsData.items;
   console.log(
     `✓ Generated ${plugins.length} plugins (${pluginsData.filters.tags.length} tags)`
-  );
-
-  const toolsData = generateToolsData();
-  const tools = toolsData.items;
-  console.log(
-    `✓ Generated ${tools.length} tools (${toolsData.filters.categories.length} categories)`
   );
 
   const samplesData = generateSamplesData();
@@ -966,10 +1741,9 @@ async function main() {
   const searchIndex = generateSearchIndex(
     agents,
     instructions,
-    hooks,
-    workflows,
     skills,
-    plugins
+    plugins,
+    extensions
   );
   console.log(`✓ Generated search index with ${searchIndex.length} items`);
 
@@ -977,16 +1751,6 @@ async function main() {
   fs.writeFileSync(
     path.join(WEBSITE_DATA_DIR, "agents.json"),
     JSON.stringify(agentsData, null, 2)
-  );
-
-  fs.writeFileSync(
-    path.join(WEBSITE_DATA_DIR, "hooks.json"),
-    JSON.stringify(hooksData, null, 2)
-  );
-
-  fs.writeFileSync(
-    path.join(WEBSITE_DATA_DIR, "workflows.json"),
-    JSON.stringify(workflowsData, null, 2)
   );
 
   fs.writeFileSync(
@@ -1005,9 +1769,10 @@ async function main() {
   );
 
   fs.writeFileSync(
-    path.join(WEBSITE_DATA_DIR, "tools.json"),
-    JSON.stringify(toolsData, null, 2)
+    path.join(WEBSITE_DATA_DIR, "extensions.json"),
+    JSON.stringify(extensionsData, null, 2)
   );
+
 
   fs.writeFileSync(
     path.join(WEBSITE_DATA_DIR, "samples.json"),
@@ -1026,10 +1791,8 @@ async function main() {
       agents: agents.length,
       instructions: instructions.length,
       skills: skills.length,
-      hooks: hooks.length,
-      workflows: workflows.length,
       plugins: plugins.length,
-      tools: tools.length,
+      extensions: extensions.length,
       contributors: contributorCount,
       samples: samplesData.totalRecipes,
       total: searchIndex.length,

@@ -1,7 +1,8 @@
 #:package GitHub.Copilot.SDK@*
 #:property PublishAot=false
 
-using GitHub.Copilot.SDK;
+// The GitHub.Copilot.SDK package exposes the GitHub.Copilot namespace.
+using GitHub.Copilot;
 
 var client = new CopilotClient();
 
@@ -10,12 +11,12 @@ try
     await client.StartAsync();
     var session = await client.CreateSessionAsync(new SessionConfig
     {
-        Model = "gpt-5",
+        Model = "auto",
         OnPermissionRequest = PermissionHandler.ApproveAll
     });
 
     var done = new TaskCompletionSource<string>();
-    session.On(evt =>
+    session.On<SessionEvent>(evt =>
     {
         if (evt is AssistantMessageEvent msg)
         {

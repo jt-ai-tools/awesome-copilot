@@ -27,12 +27,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          fetch-depth: 0  # Full history needed for git-based last updated dates
+          fetch-depth: 0 # Full history needed for git-based last updated dates
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
 
       - name: Install root dependencies
@@ -50,6 +50,7 @@ jobs:
         working-directory: ./website
 
       - name: Setup Pages
+        if: ${{ github.repository == 'github/awesome-copilot' }}
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
 
       - name: Upload artifact
@@ -59,6 +60,7 @@ jobs:
 
   # Deployment job
   deploy:
+    if: ${{ github.repository == 'github/awesome-copilot' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

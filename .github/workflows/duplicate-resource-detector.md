@@ -1,10 +1,12 @@
 ---
+if: ${{ github.repository == 'github/awesome-copilot' }}
 description: Weekly scan of agents, instructions, and skills to identify potential duplicate resources and report them for review
 on:
   schedule: weekly
 permissions:
   contents: read
   issues: read
+  copilot-requests: write
 tools:
   github:
     toolsets: [repos, issues]

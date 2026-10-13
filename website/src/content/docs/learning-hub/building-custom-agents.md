@@ -3,7 +3,7 @@ title: 'Building Custom Agents'
 description: 'Learn how to create specialized GitHub Copilot agents with custom personas, tool integrations, and domain expertise.'
 authors:
   - GitHub Copilot Learning Hub Team
-lastUpdated: 2026-02-26
+lastUpdated: 2026-09-22
 estimatedReadingTime: '10 minutes'
 tags:
   - agents
@@ -72,6 +72,29 @@ tools: ['codebase', 'terminal', 'github']
 **description** (required): A clear summary of what the agent does. This is shown in the agent picker and helps users find the right agent.
 
 **model** (recommended): The AI model that powers the agent. Choose based on the complexity of the task—use more capable models for nuanced reasoning.
+
+**Model fallback lists**: `model` can list several models, tried in order until one is available to you — useful if your preferred model is temporarily rate-limited or not enrolled for your account. Pair it with `model-policy: required` to keep the agent restricted to that list even if the user tries to switch models mid-session:
+>
+> ```yaml
+> ---
+> name: 'Security Reviewer'
+> model: [Claude Sonnet 4.5, Claude Sonnet 4, GPT-5]
+> model-policy: required
+> tools: ['codebase', 'terminal', 'github']
+> ---
+> ```
+
+**reasoningEffort**: Override the reasoning effort level for this agent. Accepted values are `low`, `medium`, and `high`. This lets you pin specific agents to a cost/quality tradeoff regardless of the user's global setting — for example, a quick code-formatting agent can use `low` effort, while a security reviewer uses `high`:
+
+```yaml
+---
+name: 'Security Reviewer'
+description: 'Thorough security audit for OWASP vulnerabilities'
+model: Claude Sonnet 4
+reasoningEffort: high
+tools: ['codebase', 'terminal', 'github']
+---
+```
 
 **tools** (recommended): An array of built-in tools and MCP servers the agent can access. Common tools include:
 
@@ -186,6 +209,8 @@ You are a release manager who automates the release process.
 
 Create agents that enforce standards:
 
+> **Built-in `/security-review`**: Before creating a custom security-reviewer agent, note that GitHub Copilot CLI includes a built-in `/security-review` command available to all users. It performs a security-focused analysis of staged changes or specified files. Custom security-reviewer agents are still valuable for domain-specific rules, team conventions, and deep integration with MCP tools like Sentry or SAST platforms.
+
 ```markdown
 ---
 name: 'Accessibility Auditor'
@@ -240,8 +265,11 @@ The agent can then query your database, analyze query plans, and suggest optimiz
 
 | Scenario | Recommended Model |
 |----------|-------------------|
-| Complex reasoning, security review | Claude Sonnet 4 or higher |
+| Most demanding reasoning, security review | Claude Sonnet 5 |
+| Complex reasoning, analysis | Claude Sonnet 4 |
+| Code generation, tool-driven agentic work | GPT-5.6 |
 | Code generation, refactoring | GPT-4.1 |
+| Code-specialized tasks, large context | kimi-k2.7-code, kimi-k3 |
 | Quick analysis, simple tasks | Claude Haiku or GPT-4.1-mini |
 | Large codebase understanding | Models with larger context windows |
 
@@ -263,6 +291,8 @@ Keep agents focused—one persona per file. If you find an agent trying to do to
 **Q: How do I select a custom agent?**
 
 A: In VS Code, open Copilot Chat and use the agent picker dropdown at the top of the chat panel. Your custom agents appear alongside built-in options. You can also `@mention` an agent by name.
+
+In Copilot CLI, custom agents are discoverable via the agent picker inside a session. Clients that integrate with Copilot CLI using the **Agent Coordination Protocol (ACP)** can also list available custom agents and switch between them programmatically via the `agent` session configuration option. This allows tools like Zed, Neovim plugins, and CI pipelines driving Copilot via ACP to surface the agent picker and switch agents without requiring a slash command. ACP clients also receive the agent's **live plan** as it works through multi-step tasks, so they can display real-time progress to their users without waiting for each turn to complete.
 
 **Q: Can agents use skills?**
 

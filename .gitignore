@@ -24,3 +24,11 @@ website/public/llms.txt
 *.sln
 obj/
 bin/
+.impeccable
+.playwright-mcp
+
+# External plugin review board canvas state (local only)
+.github/extensions/external-plugin-review-board/state/
+
+# Open PR board canvas state (local only)
+.github/extensions/open-pr-board/state/
